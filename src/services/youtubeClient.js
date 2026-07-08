@@ -32,8 +32,13 @@ async function resolveChannelId(input) {
   if (!res.ok) return null;
   const html = await res.text();
 
-  const match = html.match(/"channelId":"(UC[\w-]{22})"/) || html.match(/channel_id=(UC[\w-]{22})/);
+const canonicalMatch = html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[\w-]{22})">/);
+  const metaMatch = html.match(/<meta itemprop="channelId" content="(UC[\w-]{22})">/);
+  const externalIdMatch = html.match(/"externalId":"(UC[\w-]{22})"/);
+
+  const match = canonicalMatch || metaMatch || externalIdMatch;
   return match ? match[1] : null;
+
 }
 
 /** Fetches channel display name + latest video from the free public RSS feed. */
