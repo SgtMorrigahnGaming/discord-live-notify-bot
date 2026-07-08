@@ -1,5 +1,5 @@
 # --- Build stage: has Python/gcc/make needed to compile better-sqlite3's native module ---
-FROM node:20-slim AS builder
+FROM node:22-slim AS builder
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends python3 make g++ && \
@@ -10,7 +10,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # --- Final stage: clean slim image, no build tools, just the finished node_modules ---
-FROM node:20-slim
+FROM node:22-slim
 
 WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
