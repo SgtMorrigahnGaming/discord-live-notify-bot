@@ -1,0 +1,122 @@
+const express = require('express');
+const { PermissionsBitField, ChannelType } = require('discord.js');
+const db = require('../db');
+const twitchClient = require('../services/twitchClient');
+const youtubeClient = require('../services/youtubeClient');
+const { requireAuth, requireGuildAccess } = require('./authMiddleware');
+
+function buildRouter(client) {
+  const router = express.Router();
+  router.use(requireAuth);
+
+  // ---- Guilds the logged-in user can manage AND the bot is present in ----
+  router.get('/guilds', (req, res) => {
+    const manageable = req.session.manageableGuildIds || [];
+    const guilds = manageable
+      .map(id => client.guilds.cache.get(id))
+      .filter(Boolean)
+      .map(g => ({ id: g.id, name: g.name, icon: g.iconURL({ size: 64 }) }));
+    res.json(guilds);
+  });
+
+  const guildRouter = express.Router({ mergeParams: true });
+  guildRouter.use(requireGuildAccess(client));
+  router.use('/guilds/:guildId', guildRouter);
+
+  // ---- Text channels + roles for building dropdowns in the UI ----
+  guildRouter.get('/channels', (req, res) => {
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const me = guild.members.me;
+    const channels = guild.channels.cache
+      .filter(c => c.type === ChannelType.GuildText && c.permissionsFor(me)?.has(PermissionsBitField.Flags.SendMessages))
+      .map(c => ({ id: c.id, name: c.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json(channels);
+  });
+
+  guildRouter.get('/roles', (req, res) => {
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const roles = guild.roles.cache
+      .filter(r => r.id !== guild.id) // exclude @everyone
+      .map(r => ({ id: r.id, name: r.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json(roles);
+  });
+
+  // ---- Twitch subscriptions ----
+  guildRouter.get('/twitch', (req, res) => {
+    res.json(db.listTwitchSubsForGuild(req.params.guildId));
+  });
+
+  guildRouter.post('/twitch', async (req, res) => {
+    const { username, channelId, roleId, message } = req.body;
+    if (!username || !channelId) {
+      return res.status(400).json({ error: 'username and channelId are required' });
+    }
+    if (!process.env.TWITCH_CLIENT_ID || !process.env.TWITCH_CLIENT_SECRET) {
+      return res.status(400).json({ error: 'Twitch API credentials are not configured on this bot instance' });
+    }
+    let user;
+    try {
+      user = await twitchClient.userExists(username.trim().toLowerCase());
+    } catch (err) {
+      return res.status(502).json({ error: `Couldn't reach Twitch: ${err.message}` });
+    }
+    if (!user) {
+      return res.status(404).json({ error: `No Twitch user found with username "${username}"` });
+    }
+    db.addTwitchSub(req.params.guildId, username.trim().toLowerCase(), channelId, roleId || null, message || null);
+    res.json({ ok: true, displayName: user.display_name });
+  });
+
+  guildRouter.delete('/twitch/:username', (req, res) => {
+    const changes = db.removeTwitchSub(req.params.guildId, req.params.username);
+    if (changes === 0) return res.status(404).json({ error: 'Not tracked' });
+    res.json({ ok: true });
+  });
+
+  // ---- YouTube subscriptions ----
+  guildRouter.get('/youtube', (req, res) => {
+    res.json(db.listYoutubeSubsForGuild(req.params.guildId));
+  });
+
+  guildRouter.post('/youtube', async (req, res) => {
+    const { channelUrl, channelId: announceChannelId, roleId, message } = req.body;
+    if (!channelUrl || !announceChannelId) {
+      return res.status(400).json({ error: 'channelUrl and channelId are required' });
+    }
+    let channelId;
+    try {
+      channelId = await youtubeClient.resolveChannelId(channelUrl.trim());
+    } catch (err) {
+      return res.status(502).json({ error: `Couldn't reach YouTube: ${err.message}` });
+    }
+    if (!channelId) {
+      return res.status(404).json({ error: `Couldn't find a YouTube channel for "${channelUrl}"` });
+    }
+    let result;
+    try {
+      result = await youtubeClient.getLatestVideo(channelId);
+    } catch (err) {
+      return res.status(502).json({ error: `Found the channel but couldn't read its feed: ${err.message}` });
+    }
+    const channelName = result?.channelName || channelUrl;
+    db.addYoutubeSub(req.params.guildId, channelId, channelName, announceChannelId, roleId || null, message || null);
+
+    const state = db.getYoutubeState(channelId);
+    if (result?.latest && (!state || !state.initialized)) {
+      db.setYoutubeState(channelId, result.latest.videoId);
+    }
+    res.json({ ok: true, channelName });
+  });
+
+  guildRouter.delete('/youtube/:channelId', (req, res) => {
+    const changes = db.removeYoutubeSub(req.params.guildId, req.params.channelId);
+    if (changes === 0) return res.status(404).json({ error: 'Not tracked' });
+    res.json({ ok: true });
+  });
+
+  return router;
+}
+
+module.exports = buildRouter;

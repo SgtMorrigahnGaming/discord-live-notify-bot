@@ -1,12 +1,20 @@
 const fs = require('fs');
 const path = require('path');
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Collection } = require('discord.js');
 const config = require('./config');
 const logger = require('./utils/logger');
 const twitchPoller = require('./services/twitchPoller');
 const youtubePoller = require('./services/youtubePoller');
+const webServer = require('./web/server');
+const reactionRoleHandler = require('./services/reactionRoleHandler');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessageReactions,
+  ],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User, Partials.GuildMember],
+});
 client.commands = new Collection();
 
 const commandsPath = path.join(__dirname, 'commands');
@@ -20,8 +28,9 @@ client.once('clientReady', () => {
   logger.info(`Serving ${client.guilds.cache.size} guild(s)`);
   twitchPoller.start(client);
   youtubePoller.start(client);
+  webServer.start(client);
+  reactionRoleHandler.register(client);
 });
-
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const command = client.commands.get(interaction.commandName);

@@ -45,6 +45,20 @@ CREATE TABLE IF NOT EXISTS youtube_state (
   last_video_id TEXT,
   initialized INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS reaction_roles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  emoji_id TEXT,
+  emoji_name TEXT NOT NULL,
+  role_id TEXT NOT NULL,
+  dm_message TEXT,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  UNIQUE(message_id, emoji_id, emoji_name)
+);
+
 `);
 
 module.exports = {
@@ -131,5 +145,34 @@ module.exports = {
     db.prepare(`
       DELETE FROM youtube_state WHERE channel_id NOT IN (SELECT DISTINCT channel_id FROM youtube_subscriptions)
     `).run();
+  },
+
+  // ---- Reaction roles ----
+  addReactionRole(guildId, channelId, messageId, emojiId, emojiName, roleId, dmMessage) {
+    db.prepare(`
+      INSERT INTO reaction_roles (guild_id, channel_id, message_id, emoji_id, emoji_name, role_id, dm_message)
+      VALUES (@guildId, @channelId, @messageId, @emojiId, @emojiName, @roleId, @dmMessage)
+      ON CONFLICT(message_id, emoji_id, emoji_name) DO UPDATE SET
+        role_id = excluded.role_id,
+        dm_message = excluded.dm_message
+    `).run({ guildId, channelId, messageId, emojiId, emojiName, roleId, dmMessage });
+  },
+  removeReactionRole(messageId, emojiId, emojiName) {
+    return db.prepare(`
+      DELETE FROM reaction_roles
+      WHERE message_id = ? AND COALESCE(emoji_id, '') = COALESCE(?, '') AND emoji_name = ?
+    `).run(messageId, emojiId, emojiName).changes;
+  },
+  getReactionRole(messageId, emojiId, emojiName) {
+    return db.prepare(`
+      SELECT * FROM reaction_roles
+      WHERE message_id = ? AND COALESCE(emoji_id, '') = COALESCE(?, '') AND emoji_name = ?
+    `).get(messageId, emojiId, emojiName);
+  },
+  listReactionRolesForMessage(messageId) {
+    return db.prepare(`SELECT * FROM reaction_roles WHERE message_id = ?`).all(messageId);
+  },
+  listReactionRolePanelsForGuild(guildId) {
+    return db.prepare(`SELECT DISTINCT message_id, channel_id FROM reaction_roles WHERE guild_id = ?`).all(guildId);
   },
 };

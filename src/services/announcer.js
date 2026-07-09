@@ -1,4 +1,5 @@
 const { EmbedBuilder } = require('discord.js');
+const config = require('../config');
 const logger = require('../utils/logger');
 
 function fillTemplate(template, vars) {
@@ -27,7 +28,7 @@ async function announceTwitchLive(client, sub, stream, user) {
 
   const content = [
     sub.role_id ? `<@&${sub.role_id}>` : null,
-    fillTemplate(sub.custom_message, vars) || `🔴 **${stream.user_name}** is now live on Twitch!`,
+    fillTemplate(sub.custom_message, vars) || fillTemplate(config.twitch.defaultMessage, vars),
   ].filter(Boolean).join(' ');
 
   const embed = new EmbedBuilder()
@@ -62,7 +63,7 @@ async function announceYoutubeVideo(client, sub, video) {
 
   const content = [
     sub.role_id ? `<@&${sub.role_id}>` : null,
-    fillTemplate(sub.custom_message, vars) || `📺 **${video.channelName}** just uploaded a new video!`,
+   fillTemplate(sub.custom_message, vars) || fillTemplate(config.youtube.defaultMessage, vars),
   ].filter(Boolean).join(' ');
 
   const embed = new EmbedBuilder()
