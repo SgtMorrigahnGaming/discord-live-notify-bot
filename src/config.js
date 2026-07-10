@@ -23,6 +23,9 @@ module.exports = {
     pollIntervalMs: Number(process.env.YOUTUBE_POLL_INTERVAL_MS || 300_000),
     defaultMessage: process.env.YOUTUBE_DEFAULT_MESSAGE || '📺 **{channel}** just uploaded a new video!',
   },
+  freegames: {
+    pollIntervalMs: Number(process.env.FREEGAMES_POLL_INTERVAL_MS || 3_600_000),
+  },
   db: {
     path: process.env.DB_PATH || './data/bot.sqlite',
   },

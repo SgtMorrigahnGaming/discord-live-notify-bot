@@ -79,4 +79,32 @@ async function announceYoutubeVideo(client, sub, video) {
   });
 }
 
-module.exports = { announceTwitchLive, announceYoutubeVideo };
+const SOURCE_STYLE = {
+  steam: { label: 'Steam', color: 0x1b2838 },
+  gog: { label: 'GOG', color: 0x8b40e3 },
+  epic: { label: 'Epic Games', color: 0x2a2a2a },
+};
+
+async function announceFreeGame(client, sub, source, game) {
+  const channel = await client.channels.fetch(sub.channel_id).catch(() => null);
+  if (!channel) {
+    logger.warn(`Free games announce: channel ${sub.channel_id} not found (guild ${sub.guild_id})`);
+    return;
+  }
+
+  const style = SOURCE_STYLE[source] || { label: source, color: 0x5865f2 };
+
+  const embed = new EmbedBuilder()
+    .setColor(style.color)
+    .setAuthor({ name: style.label })
+    .setTitle(`Free Game: ${game.title}`)
+    .setURL(game.url)
+    .addFields({ name: 'Price', value: 'FREE', inline: true })
+    .setImage(game.image || null);
+
+  await channel.send({ embeds: [embed] }).catch(err => {
+    logger.error(`Failed to send free games announcement in guild ${sub.guild_id}:`, err.message);
+  });
+}
+
+module.exports = { announceTwitchLive, announceYoutubeVideo, announceFreeGame };

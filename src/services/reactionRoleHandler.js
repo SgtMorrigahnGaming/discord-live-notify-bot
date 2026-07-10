@@ -1,15 +1,5 @@
 const db = require('../db');
-const emojiUtil = require('../utils/emoji');
 const logger = require('../utils/logger');
-
-function fillTemplate(template, vars) {
-  if (!template) return null;
-  let out = template;
-  for (const [key, val] of Object.entries(vars)) {
-    out = out.replaceAll(`{${key}}`, val ?? '');
-  }
-  return out;
-}
 
 async function resolveReactionContext(reaction, user) {
   if (user.bot) return null; // ignore the bot's own setup reaction, and any other bots
@@ -43,15 +33,7 @@ function register(client) {
       if (member.roles.cache.has(row.role_id)) return; // already has it
       await member.roles.add(row.role_id).catch(err => {
         logger.warn(`Reaction role: couldn't add role ${row.role_id} to ${user.tag} in ${guild.name}: ${err.message}`);
-        return null;
       });
-
-      if (row.dm_message) {
-        const content = fillTemplate(row.dm_message, { user: member.displayName, server: guild.name });
-        await member.send(content).catch(() => {
-          logger.warn(`Reaction role: couldn't DM ${user.tag} (DMs likely disabled) — role was still granted.`);
-        });
-      }
     } catch (err) {
       logger.error('messageReactionAdd handler error:', err);
     }

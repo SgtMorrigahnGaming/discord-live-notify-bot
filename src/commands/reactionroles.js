@@ -19,8 +19,7 @@ module.exports = {
       .addStringOption(opt => opt.setName('message_id').setDescription('The panel message ID (right-click it -> Copy Message ID)').setRequired(true))
       .addChannelOption(opt => opt.setName('channel').setDescription('Channel the panel message is in').addChannelTypes(ChannelType.GuildText).setRequired(true))
       .addStringOption(opt => opt.setName('emoji').setDescription('Emoji to react with (pick from the emoji picker)').setRequired(true))
-      .addRoleOption(opt => opt.setName('role').setDescription('Role to grant when someone reacts').setRequired(true))
-      .addStringOption(opt => opt.setName('welcome_dm').setDescription('Optional DM to send when granted. Use {user} {server}').setRequired(false)))
+      .addRoleOption(opt => opt.setName('role').setDescription('Role to grant when someone reacts').setRequired(true)))
     .addSubcommand(sub => sub
       .setName('remove')
       .setDescription('Remove an emoji-role pair from a panel')
@@ -58,7 +57,6 @@ module.exports = {
       const channel = interaction.options.getChannel('channel');
       const rawEmoji = interaction.options.getString('emoji');
       const role = interaction.options.getRole('role');
-      const welcomeDm = interaction.options.getString('welcome_dm');
 
       const parsedEmoji = emojiUtil.parseEmojiInput(rawEmoji);
       if (!parsedEmoji) {
@@ -83,7 +81,7 @@ module.exports = {
         return interaction.editReply(`❌ Couldn't react with that emoji: ${err.message}. If it's a custom emoji, make sure it's from this server (or one I'm also in).`);
       }
 
-      db.addReactionRole(interaction.guildId, channel.id, messageId, parsedEmoji.id, parsedEmoji.name, role.id, welcomeDm || null);
+      db.addReactionRole(interaction.guildId, channel.id, messageId, parsedEmoji.id, parsedEmoji.name, role.id, null);
 
       return interaction.editReply(`✅ ${emojiUtil.displayEmoji(parsedEmoji)} on that panel now grants **${role.name}**.`);
     }
@@ -126,7 +124,7 @@ module.exports = {
         .setTitle('Reaction roles on this panel')
         .setDescription(rows.map(r => {
           const emoji = emojiUtil.displayEmoji({ id: r.emoji_id, name: r.emoji_name });
-          return `${emoji} → <@&${r.role_id}>${r.dm_message ? ' *(sends a DM)*' : ''}`;
+          return `${emoji} → <@&${r.role_id}>`;
         }).join('\n'));
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }

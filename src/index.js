@@ -5,16 +5,19 @@ const config = require('./config');
 const logger = require('./utils/logger');
 const twitchPoller = require('./services/twitchPoller');
 const youtubePoller = require('./services/youtubePoller');
-const webServer = require('./web/server');
-const reactionRoleHandler = require('./services/reactionRoleHandler');
+const freeGamesPoller = require('./services/freeGamesPoller');
+const webServer = require('./web/server');const reactionRoleHandler = require('./services/reactionRoleHandler');
+const welcomeHandler = require('./services/welcomeHandler');
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildMembers,
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User, Partials.GuildMember],
 });
+
 client.commands = new Collection();
 
 const commandsPath = path.join(__dirname, 'commands');
@@ -28,9 +31,12 @@ client.once('clientReady', () => {
   logger.info(`Serving ${client.guilds.cache.size} guild(s)`);
   twitchPoller.start(client);
   youtubePoller.start(client);
+  freeGamesPoller.start(client);
   webServer.start(client);
   reactionRoleHandler.register(client);
+  welcomeHandler.register(client);
 });
+
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const command = client.commands.get(interaction.commandName);

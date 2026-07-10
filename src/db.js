@@ -57,8 +57,31 @@ CREATE TABLE IF NOT EXISTS reaction_roles (
   dm_message TEXT,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   UNIQUE(message_id, emoji_id, emoji_name)
+ );
+
+CREATE TABLE IF NOT EXISTS guild_welcome_config (
+  guild_id TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL,
+  dm_message TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1
 );
 
+CREATE TABLE IF NOT EXISTS freegames_subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  source TEXT NOT NULL CHECK(source IN ('steam','gog','epic')),
+  channel_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  UNIQUE(guild_id, source)
+);
+
+CREATE TABLE IF NOT EXISTS freegames_announced (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  announced_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  UNIQUE(source, external_id)
+);
 `);
 
 module.exports = {
@@ -174,5 +197,52 @@ module.exports = {
   },
   listReactionRolePanelsForGuild(guildId) {
     return db.prepare(`SELECT DISTINCT message_id, channel_id FROM reaction_roles WHERE guild_id = ?`).all(guildId);
+  },
+
+  // ---- Welcome config ----
+  setWelcomeConfig(guildId, channelId, dmMessage) {
+    db.prepare(`
+      INSERT INTO guild_welcome_config (guild_id, channel_id, dm_message, enabled)
+      VALUES (@guildId, @channelId, @dmMessage, 1)
+      ON CONFLICT(guild_id) DO UPDATE SET
+        channel_id = excluded.channel_id,
+        dm_message = excluded.dm_message,
+        enabled = 1
+    `).run({ guildId, channelId, dmMessage });
+  },
+  getWelcomeConfig(guildId) {
+    return db.prepare(`SELECT * FROM guild_welcome_config WHERE guild_id = ?`).get(guildId);
+  },
+setWelcomeEnabled(guildId, enabled) {
+    return db.prepare(`UPDATE guild_welcome_config SET enabled = ? WHERE guild_id = ?`)
+      .run(enabled ? 1 : 0, guildId).changes;
+  },
+
+  // ---- Free games ----
+  addFreeGamesSub(guildId, source, channelId) {
+    db.prepare(`
+      INSERT INTO freegames_subscriptions (guild_id, source, channel_id)
+      VALUES (@guildId, @source, @channelId)
+      ON CONFLICT(guild_id, source) DO UPDATE SET channel_id = excluded.channel_id
+    `).run({ guildId, source, channelId });
+  },
+  removeFreeGamesSub(guildId, source) {
+    return db.prepare(`DELETE FROM freegames_subscriptions WHERE guild_id = ? AND source = ?`)
+      .run(guildId, source).changes;
+  },
+  listFreeGamesSubsForGuild(guildId) {
+    return db.prepare(`SELECT * FROM freegames_subscriptions WHERE guild_id = ?`).all(guildId);
+  },
+  listGuildSubsForFreeGamesSource(source) {
+    return db.prepare(`SELECT * FROM freegames_subscriptions WHERE source = ?`).all(source);
+  },
+  listActiveFreeGamesSources() {
+    return db.prepare(`SELECT DISTINCT source FROM freegames_subscriptions`).all().map(r => r.source);
+  },
+  hasAnnouncedFreeGame(source, externalId) {
+    return !!db.prepare(`SELECT 1 FROM freegames_announced WHERE source = ? AND external_id = ?`).get(source, externalId);
+  },
+  markFreeGameAnnounced(source, externalId) {
+    db.prepare(`INSERT OR IGNORE INTO freegames_announced (source, external_id) VALUES (?, ?)`).run(source, externalId);
   },
 };
