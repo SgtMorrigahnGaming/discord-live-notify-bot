@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+echo "Adding donation links to dashboard..."
+mkdir -p src/web/public
+cat > src/web/public/index.html << 'EOF_MARKER_INDEX_HTML'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -672,3 +677,6 @@
 </script>
 </body>
 </html>
+EOF_MARKER_INDEX_HTML
+
+echo "Dashboard updated with donation links."

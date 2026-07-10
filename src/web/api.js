@@ -1,8 +1,10 @@
 const express = require('express');
-const { PermissionsBitField, ChannelType } = require('discord.js');
+const { PermissionsBitField, ChannelType, EmbedBuilder } = require('discord.js');
 const db = require('../db');
 const twitchClient = require('../services/twitchClient');
 const youtubeClient = require('../services/youtubeClient');
+const emojiUtil = require('../utils/emoji');
+const { generateWelcomeCard } = require('../utils/welcomeCard');
 const { requireAuth, requireGuildAccess } = require('./authMiddleware');
 
 function buildRouter(client) {
@@ -113,6 +115,135 @@ function buildRouter(client) {
   guildRouter.delete('/youtube/:channelId', (req, res) => {
     const changes = db.removeYoutubeSub(req.params.guildId, req.params.channelId);
     if (changes === 0) return res.status(404).json({ error: 'Not tracked' });
+    res.json({ ok: true });
+  });
+
+  // ---- Free games ----
+  guildRouter.get('/freegames', (req, res) => {
+    res.json(db.listFreeGamesSubsForGuild(req.params.guildId));
+  });
+
+  guildRouter.post('/freegames', (req, res) => {
+    const { source, channelId } = req.body;
+    if (!['steam', 'gog', 'epic'].includes(source) || !channelId) {
+      return res.status(400).json({ error: 'source (steam|gog|epic) and channelId are required' });
+    }
+    db.addFreeGamesSub(req.params.guildId, source, channelId);
+    res.json({ ok: true });
+  });
+
+  guildRouter.delete('/freegames/:source', (req, res) => {
+    const changes = db.removeFreeGamesSub(req.params.guildId, req.params.source);
+    if (changes === 0) return res.status(404).json({ error: 'Not enabled' });
+    res.json({ ok: true });
+  });
+
+  // ---- Welcome ----
+  guildRouter.get('/welcome', (req, res) => {
+    res.json(db.getWelcomeConfig(req.params.guildId) || null);
+  });
+
+  guildRouter.post('/welcome', (req, res) => {
+    const { channelId, dmMessage } = req.body;
+    if (!channelId) return res.status(400).json({ error: 'channelId is required' });
+    db.setWelcomeConfig(req.params.guildId, channelId, dmMessage || null);
+    res.json({ ok: true });
+  });
+
+  guildRouter.post('/welcome/enabled', (req, res) => {
+    const { enabled } = req.body;
+    const changes = db.setWelcomeEnabled(req.params.guildId, !!enabled);
+    if (changes === 0) return res.status(404).json({ error: 'Welcome not set up yet' });
+    res.json({ ok: true });
+  });
+
+  guildRouter.post('/welcome/preview', async (req, res) => {
+    const config = db.getWelcomeConfig(req.params.guildId);
+    if (!config) return res.status(404).json({ error: 'Welcome not set up yet' });
+
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const member = await guild.members.fetch(req.session.user.id).catch(() => null);
+    if (!member) return res.status(404).json({ error: "Couldn't find your member record in this server" });
+
+    try {
+      const buffer = await generateWelcomeCard({
+        avatarUrl: member.displayAvatarURL({ extension: 'png', size: 256 }),
+        username: member.user.username,
+        guildName: guild.name,
+        memberCount: guild.memberCount,
+      });
+      res.set('Content-Type', 'image/png');
+      res.send(buffer);
+    } catch (err) {
+      res.status(500).json({ error: `Failed to generate preview: ${err.message}` });
+    }
+  });
+
+  // ---- Reaction roles ----
+  guildRouter.get('/reactionroles/panels', (req, res) => {
+    const panels = db.listReactionRolePanelsForGuild(req.params.guildId);
+    const withMappings = panels.map(p => ({
+      ...p,
+      mappings: db.listReactionRolesForMessage(p.message_id),
+    }));
+    res.json(withMappings);
+  });
+
+  guildRouter.post('/reactionroles/panels', async (req, res) => {
+    const { channelId, title, description } = req.body;
+    if (!channelId || !title || !description) {
+      return res.status(400).json({ error: 'channelId, title, and description are required' });
+    }
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const embed = new EmbedBuilder().setColor(0x5865f2).setTitle(title).setDescription(description);
+    const message = await channel.send({ embeds: [embed] }).catch(() => null);
+    if (!message) return res.status(502).json({ error: "Couldn't post in that channel — check my permissions there" });
+
+    res.json({ ok: true, messageId: message.id, channelId });
+  });
+
+  guildRouter.post('/reactionroles/panels/:messageId/mappings', async (req, res) => {
+    const { channelId, emoji, roleId } = req.body;
+    if (!channelId || !emoji || !roleId) {
+      return res.status(400).json({ error: 'channelId, emoji, and roleId are required' });
+    }
+
+    const parsedEmoji = emojiUtil.parseEmojiInput(emoji);
+    if (!parsedEmoji) return res.status(400).json({ error: `Couldn't understand "${emoji}" as an emoji` });
+
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const role = guild.roles.cache.get(roleId);
+    if (!role) return res.status(404).json({ error: 'Role not found' });
+    if (role.managed || role.id === guild.id) {
+      return res.status(400).json({ error: "Can't use that role — it's managed by an integration or is @everyone" });
+    }
+    if (guild.members.me.roles.highest.position <= role.position) {
+      return res.status(400).json({ error: `I can't assign "${role.name}" — move my role above it in Server Settings → Roles` });
+    }
+
+    const channel = client.channels.cache.get(channelId);
+    const message = await channel?.messages.fetch(req.params.messageId).catch(() => null);
+    if (!message) return res.status(404).json({ error: 'Panel message not found' });
+
+    try {
+      await message.react(emojiUtil.toReactString(parsedEmoji));
+    } catch (err) {
+      return res.status(502).json({ error: `Couldn't react with that emoji: ${err.message}` });
+    }
+
+    db.addReactionRole(req.params.guildId, channelId, req.params.messageId, parsedEmoji.id, parsedEmoji.name, roleId, null);
+    res.json({ ok: true });
+  });
+
+  guildRouter.delete('/reactionroles/panels/:messageId/mappings', async (req, res) => {
+    const emojiId = req.query.emojiId || null;
+    const emojiName = req.query.emojiName;
+    if (!emojiName) return res.status(400).json({ error: 'emojiName query param is required' });
+
+    const changes = db.removeReactionRole(req.params.messageId, emojiId, emojiName);
+    if (changes === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ ok: true });
   });
 
