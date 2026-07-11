@@ -204,58 +204,6 @@ function buildRouter(client) {
     res.json({ ok: true, messageId: message.id, channelId });
   });
 
-  guildRouter.patch('/reactionroles/panels/:messageId', async (req, res) => {
-    const { channelId, title, description, newChannelId } = req.body;
-    if (!channelId) return res.status(400).json({ error: 'channelId (current channel) is required' });
-    if (!title && !description && !newChannelId) {
-      return res.status(400).json({ error: 'Provide at least a title, description, or newChannelId to change' });
-    }
-
-    const channel = client.channels.cache.get(channelId);
-    const message = await channel?.messages.fetch(req.params.messageId).catch(() => null);
-    if (!message) return res.status(404).json({ error: 'Panel message not found' });
-    if (message.author.id !== client.user.id) {
-      return res.status(400).json({ error: "That message wasn't posted by me, so I can't edit it" });
-    }
-    const existing = message.embeds[0];
-    if (!existing) return res.status(400).json({ error: "That message doesn't look like a reaction role panel" });
-
-    const embed = EmbedBuilder.from(existing)
-      .setTitle(title || existing.title)
-      .setDescription(description || existing.description);
-
-    const isMoving = newChannelId && newChannelId !== channelId;
-
-    if (!isMoving) {
-      const edited = await message.edit({ embeds: [embed] }).catch(() => null);
-      if (!edited) return res.status(502).json({ error: "Couldn't edit that message" });
-      return res.json({ ok: true, messageId: message.id, channelId });
-    }
-
-    const newChannel = client.channels.cache.get(newChannelId);
-    if (!newChannel) return res.status(404).json({ error: 'Target channel not found' });
-
-    const pairs = db.listReactionRolesForMessage(req.params.messageId);
-
-    const newMessage = await newChannel.send({ embeds: [embed] }).catch(() => null);
-    if (!newMessage) return res.status(502).json({ error: "Couldn't post in the new channel — check my permissions there" });
-
-    const failedEmoji = [];
-    for (const pair of pairs) {
-      const emoji = { id: pair.emoji_id, name: pair.emoji_name };
-      try {
-        await newMessage.react(emojiUtil.toReactString(emoji));
-      } catch {
-        failedEmoji.push(emojiUtil.displayEmoji(emoji));
-      }
-    }
-
-    db.movePanel(req.params.messageId, newMessage.id, newChannelId);
-    await message.delete().catch(() => {});
-
-    res.json({ ok: true, messageId: newMessage.id, channelId: newChannelId, failedEmoji });
-  });
-
   guildRouter.post('/reactionroles/panels/:messageId/mappings', async (req, res) => {
     const { channelId, emoji, roleId } = req.body;
     if (!channelId || !emoji || !roleId) {

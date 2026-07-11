@@ -239,32 +239,16 @@
   .rr-panel .rr-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
   .rr-panel .rr-panel-title { font-size: 12px; color: var(--text-dim); }
   .rr-panel .rr-edit-btn { flex-shrink: 0; width: auto; padding: 5px 10px; font-size: 12px; background: transparent; border: 1px solid var(--panel-border); }
-
-  .rr-summary-row {
-    display: flex; align-items: center; padding: 6px 0; font-size: 13px;
-    border-top: 1px solid var(--panel-border); color: var(--text-dim);
-  }
-  .rr-summary-row:first-of-type { border-top: none; }
-
-  .rr-edit-panel { margin-top: 8px; padding: 10px; background: #14161d; border-radius: 6px; display: flex; flex-direction: column; gap: 14px; }
-  .rr-edit-section { display: flex; flex-direction: column; gap: 6px; }
-  .rr-edit-section h4 { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 2px; }
-  .rr-edit-section .hint { font-size: 11px; color: var(--text-dim); margin: -2px 0 4px; }
-  .rr-edit-actions { display: flex; gap: 6px; }
-  .rr-edit-actions button { flex-shrink: 0; width: auto; padding: 8px 14px; }
-  .rr-edit-actions button.secondary { background: transparent; border: 1px solid var(--panel-border); }
-
-  .rr-mapping-edit-row {
-    display: flex; align-items: center; gap: 6px;
+  .rr-edit-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding: 10px; background: #14161d; border-radius: 6px; }
+  .rr-edit-form .rr-edit-actions { display: flex; gap: 6px; }
+  .rr-edit-form .rr-edit-actions button { flex-shrink: 0; width: auto; padding: 8px 14px; }
+  .rr-edit-form .rr-edit-actions button.cancel { background: transparent; border: 1px solid var(--panel-border); }
+  .rr-mapping-row {
+    display: flex; align-items: center; justify-content: space-between;
     padding: 6px 0; font-size: 13px; border-top: 1px solid var(--panel-border);
   }
-  .rr-mapping-edit-row:first-of-type { border-top: none; }
-  .rr-mapping-edit-row .rr-mapping-emoji { flex-shrink: 0; min-width: 34px; }
-  .rr-mapping-edit-row select { flex: 1; min-width: 0; }
-  .rr-mapping-edit-row button { flex-shrink: 0; width: auto; padding: 6px 10px; font-size: 12px; }
-  .rr-mapping-edit-row button.remove { background: transparent; border: 1px solid var(--panel-border); color: var(--err); }
-
-  .rr-add-mapping { display: flex; gap: 6px; margin-top: 4px; }
+  .rr-mapping-row:first-of-type { border-top: none; }
+  .rr-add-mapping { display: flex; gap: 6px; margin-top: 10px; }
   .rr-add-mapping input, .rr-add-mapping select { flex: 1; min-width: 0; }
   .rr-add-mapping button { flex-shrink: 0; width: auto; padding: 9px 14px; }
 </style>
@@ -396,7 +380,7 @@
   <div id="toast"></div>
 
 <script>
-  const state = { guildId: null, expandedPanels: new Set() };
+  const state = { guildId: null };
 
   function toast(msg, kind) {
     const el = document.getElementById('toast');
@@ -624,77 +608,52 @@
 
   // ---- Reaction roles ----
   function renderReactionRoles(panels, channels, roles) {
-    state.rrData = { panels, channels, roles }; // cached so Edit/Done can toggle instantly, no refetch
     const el = document.getElementById('rrPanelsList');
     if (panels.length === 0) { el.innerHTML = '<div class="empty-state">No reaction role panels yet — create one below.</div>'; return; }
 
-    el.innerHTML = panels.map(p => {
-      const isOpen = state.expandedPanels.has(p.message_id);
-      const mappingLine = m => `${m.emoji_id ? `[custom:${m.emoji_name}]` : m.emoji_name} → @${roleName(roles, m.role_id)}`;
-
-      const summary = `
-        <div class="rr-summary">
-          ${p.mappings.map(m => `<div class="rr-summary-row">${mappingLine(m)}</div>`).join('')
-            || '<div class="empty-state">No emoji-role pairs yet.</div>'}
-        </div>`;
-
-      const editPanel = `
-        <div class="rr-edit-panel">
-          <div class="rr-edit-section">
-            <h4>Panel details</h4>
-            <input type="text" class="rr-edit-title" placeholder="Title (leave blank to keep current)" />
-            <input type="text" class="rr-edit-description" placeholder="Description (leave blank to keep current)" />
-            <select class="rr-edit-channel">
-              ${channels.map(c => `<option value="${c.id}" ${c.id === p.channel_id ? 'selected' : ''}>#${c.name}</option>`).join('')}
-            </select>
-            <div class="rr-edit-actions">
-              <button type="button" class="rr-edit-save">Save details</button>
+    el.innerHTML = panels.map(p => `
+      <div class="rr-panel" data-message-id="${p.message_id}" data-channel-id="${p.channel_id}">
+        <div class="rr-panel-header">
+          <div class="rr-panel-title">Panel in #${channelName(channels, p.channel_id)} — message ID ${p.message_id}</div>
+          <button type="button" class="rr-edit-btn" data-action="toggle-edit">Edit</button>
+        </div>
+        <div class="rr-edit-form" style="display:none;">
+          <input type="text" class="rr-edit-title" placeholder="New title (leave blank to keep current)" />
+          <input type="text" class="rr-edit-description" placeholder="New description (leave blank to keep current)" />
+          <select class="rr-edit-channel">
+            ${channels.map(c => `<option value="${c.id}" ${c.id === p.channel_id ? 'selected' : ''}>#${c.name}</option>`).join('')}
+          </select>
+          <div class="rr-edit-actions">
+            <button type="button" class="rr-edit-save">Save</button>
+            <button type="button" class="cancel" data-action="toggle-edit">Cancel</button>
+          </div>
+        </div>
+        <div class="rr-mappings">
+          ${p.mappings.map(m => `
+            <div class="rr-mapping-row">
+              <span>${m.emoji_id ? `[custom:${m.emoji_name}]` : m.emoji_name} → @${roleName(roles, m.role_id)}</span>
+              <button data-message-id="${p.message_id}" data-emoji-id="${m.emoji_id || ''}" data-emoji-name="${m.emoji_name}">Remove</button>
             </div>
-          </div>
-          <div class="rr-edit-section">
-            <h4>Emoji → role</h4>
-            <div class="hint">Change the role and hit Update, or remove a pair. To swap the emoji itself, remove it and add the new one below.</div>
-            ${p.mappings.map(m => `
-              <div class="rr-mapping-edit-row" data-emoji-id="${m.emoji_id || ''}" data-emoji-name="${m.emoji_name}">
-                <span class="rr-mapping-emoji">${m.emoji_id ? `[custom:${m.emoji_name}]` : m.emoji_name}</span>
-                <select class="rr-mapping-role-select">
-                  ${roles.map(r => `<option value="${r.id}" ${r.id === m.role_id ? 'selected' : ''}>@${r.name}</option>`).join('')}
-                </select>
-                <button type="button" class="rr-mapping-update">Update</button>
-                <button type="button" class="remove rr-mapping-remove">Remove</button>
-              </div>
-            `).join('') || '<div class="empty-state">No emoji-role pairs yet.</div>'}
-            <div class="rr-add-mapping">
-              <input type="text" placeholder="New emoji" class="rr-emoji-input" />
-              <select class="rr-role-select">${roles.map(r => `<option value="${r.id}">@${r.name}</option>`).join('')}</select>
-              <button type="button" class="rr-add-btn">Add</button>
-            </div>
-          </div>
-        </div>`;
-
-      return `
-        <div class="rr-panel" data-message-id="${p.message_id}" data-channel-id="${p.channel_id}">
-          <div class="rr-panel-header">
-            <div class="rr-panel-title">Panel in #${channelName(channels, p.channel_id)} — message ID ${p.message_id}</div>
-            <button type="button" class="rr-edit-btn" data-action="toggle-edit">${isOpen ? 'Done' : 'Edit'}</button>
-          </div>
-          ${isOpen ? editPanel : summary}
-        </div>`;
-    }).join('');
+          `).join('') || '<div class="empty-state">No emoji-role pairs yet.</div>'}
+        </div>
+        <div class="rr-add-mapping">
+          <input type="text" placeholder="Emoji" class="rr-emoji-input" />
+          <select class="rr-role-select">${roles.map(r => `<option value="${r.id}">@${r.name}</option>`).join('')}</select>
+          <button type="button" class="rr-add-btn">Add</button>
+        </div>
+      </div>
+    `).join('');
 
     el.querySelectorAll('[data-action="toggle-edit"]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const messageId = btn.closest('.rr-panel').dataset.messageId;
-        if (state.expandedPanels.has(messageId)) state.expandedPanels.delete(messageId);
-        else state.expandedPanels.add(messageId);
-        renderReactionRoles(state.rrData.panels, state.rrData.channels, state.rrData.roles);
+        const form = btn.closest('.rr-panel').querySelector('.rr-edit-form');
+        form.style.display = form.style.display === 'none' ? 'flex' : 'none';
       });
     });
 
     el.querySelectorAll('.rr-edit-save').forEach(btn => {
       btn.addEventListener('click', async () => {
         const panelEl = btn.closest('.rr-panel');
-        const messageId = panelEl.dataset.messageId;
         const title = panelEl.querySelector('.rr-edit-title').value.trim();
         const description = panelEl.querySelector('.rr-edit-description').value.trim();
         const newChannelId = panelEl.querySelector('.rr-edit-channel').value;
@@ -712,13 +671,10 @@
 
         btn.disabled = true;
         try {
-          const result = await api(`/guilds/${state.guildId}/reactionroles/panels/${messageId}`, {
+          const result = await api(`/guilds/${state.guildId}/reactionroles/panels/${panelEl.dataset.messageId}`, {
             method: 'PATCH',
             body: JSON.stringify(body),
           });
-          // A channel move gives the panel a new message ID — keep it expanded under its new ID.
-          state.expandedPanels.delete(messageId);
-          state.expandedPanels.add(result.messageId);
           if (result.failedEmoji && result.failedEmoji.length > 0) {
             toast(`Panel moved, but couldn't re-add: ${result.failedEmoji.join(', ')}`, 'err');
           } else {
@@ -733,39 +689,12 @@
       });
     });
 
-    el.querySelectorAll('.rr-mapping-update').forEach(btn => {
+    el.querySelectorAll('.rr-mapping-row button').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const panelEl = btn.closest('.rr-panel');
-        const rowEl = btn.closest('.rr-mapping-edit-row');
-        const roleId = rowEl.querySelector('.rr-mapping-role-select').value;
-        // Re-adding the same emoji with a new role updates it in place (upsert) rather than duplicating.
-        const emoji = rowEl.dataset.emojiId
-          ? `<:${rowEl.dataset.emojiName}:${rowEl.dataset.emojiId}>`
-          : rowEl.dataset.emojiName;
-        btn.disabled = true;
         try {
-          await api(`/guilds/${state.guildId}/reactionroles/panels/${panelEl.dataset.messageId}/mappings`, {
-            method: 'POST',
-            body: JSON.stringify({ channelId: panelEl.dataset.channelId, emoji, roleId }),
-          });
-          toast('Role updated', 'ok');
-          loadGuild(state.guildId);
-        } catch (err) {
-          toast(err.message, 'err');
-        } finally {
-          btn.disabled = false;
-        }
-      });
-    });
-
-    el.querySelectorAll('.rr-mapping-remove').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const panelEl = btn.closest('.rr-panel');
-        const rowEl = btn.closest('.rr-mapping-edit-row');
-        try {
-          const params = new URLSearchParams({ emojiName: rowEl.dataset.emojiName });
-          if (rowEl.dataset.emojiId) params.set('emojiId', rowEl.dataset.emojiId);
-          await api(`/guilds/${state.guildId}/reactionroles/panels/${panelEl.dataset.messageId}/mappings?${params}`, { method: 'DELETE' });
+          const params = new URLSearchParams({ emojiName: btn.dataset.emojiName });
+          if (btn.dataset.emojiId) params.set('emojiId', btn.dataset.emojiId);
+          await api(`/guilds/${state.guildId}/reactionroles/panels/${btn.dataset.messageId}/mappings?${params}`, { method: 'DELETE' });
           toast('Mapping removed', 'ok');
           loadGuild(state.guildId);
         } catch (err) { toast(err.message, 'err'); }

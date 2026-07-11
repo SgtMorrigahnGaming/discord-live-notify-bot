@@ -198,12 +198,6 @@ module.exports = {
   listReactionRolePanelsForGuild(guildId) {
     return db.prepare(`SELECT DISTINCT message_id, channel_id FROM reaction_roles WHERE guild_id = ?`).all(guildId);
   },
-  movePanel(oldMessageId, newMessageId, newChannelId) {
-    db.prepare(`
-      UPDATE reaction_roles SET message_id = @newMessageId, channel_id = @newChannelId
-      WHERE message_id = @oldMessageId
-    `).run({ oldMessageId, newMessageId, newChannelId });
-  },
 
   // ---- Welcome config ----
   setWelcomeConfig(guildId, channelId, dmMessage) {

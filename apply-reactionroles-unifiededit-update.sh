@@ -1,3 +1,262 @@
+#!/usr/bin/env bash
+# apply-reactionroles-unifiededit-update.sh
+#
+# Follow-up to apply-reactionroles-editpanel-update.sh — consolidates panel editing on the
+# dashboard into a single "Edit" view per panel (title/description/channel + emoji-role
+# mappings all together), instead of a separate always-visible "Edit" button and "Add" form
+# that were confusing to tell apart.
+#
+# Requires apply-reactionroles-editpanel-update.sh to have already been applied (this one
+# does NOT touch src/db.js or src/web/api.js — those are unchanged from that patch).
+#
+# What this touches:
+#   - src/commands/reactionroles.js  (clarifies /reactionroles add also updates the role
+#                                      if the emoji is already on the panel)
+#   - src/web/public/index.html      (unified Edit view: title/description/channel + per-row
+#                                      role update/remove + add-new, all under one Edit/Done
+#                                      toggle per panel)
+#
+# Run this from the repo root.
+
+set -euo pipefail
+
+if [ ! -f "package.json" ] || [ ! -d "src" ]; then
+  echo "❌ Run this from the repo root (where package.json and src/ live)." >&2
+  exit 1
+fi
+
+if ! grep -q "movePanel" src/db.js 2>/dev/null; then
+  echo "⚠️  src/db.js doesn't have movePanel yet — apply apply-reactionroles-editpanel-update.sh first." >&2
+  exit 1
+fi
+
+backup() {
+  if [ -f "$1" ]; then
+    cp "$1" "$1.bak"
+    echo "  backed up $1 -> $1.bak"
+  fi
+}
+
+echo "Backing up files about to change..."
+backup "src/commands/reactionroles.js"
+backup "src/web/public/index.html"
+
+echo "Writing src/commands/reactionroles.js..."
+cat > src/commands/reactionroles.js << 'RR_CMD_EOF'
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ChannelType } = require('discord.js');
+const db = require('../db');
+const emojiUtil = require('../utils/emoji');
+
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('reactionroles')
+    .setDescription('Set up self-serve roles via message reactions')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand(sub => sub
+      .setName('create-panel')
+      .setDescription('Post a new panel message that you can attach reaction roles to')
+      .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post the panel in').addChannelTypes(ChannelType.GuildText).setRequired(true))
+      .addStringOption(opt => opt.setName('title').setDescription('Panel title').setRequired(true))
+      .addStringOption(opt => opt.setName('description').setDescription('Panel description').setRequired(true)))
+    .addSubcommand(sub => sub
+      .setName('edit-panel')
+      .setDescription('Edit the title/description/channel of an existing panel message')
+      .addStringOption(opt => opt.setName('message_id').setDescription('The panel message ID (right-click it -> Copy Message ID)').setRequired(true))
+      .addChannelOption(opt => opt.setName('channel').setDescription('Channel the panel message is currently in').addChannelTypes(ChannelType.GuildText).setRequired(true))
+      .addStringOption(opt => opt.setName('title').setDescription('New panel title (leave blank to keep current)').setRequired(false))
+      .addStringOption(opt => opt.setName('description').setDescription('New panel description (leave blank to keep current)').setRequired(false))
+      .addChannelOption(opt => opt.setName('new_channel').setDescription('Move the panel to this channel (leave blank to keep it where it is)').addChannelTypes(ChannelType.GuildText).setRequired(false)))
+    .addSubcommand(sub => sub
+      .setName('add')
+      .setDescription('Attach an emoji-role pair to a panel (or change its role if the emoji is already on it)')
+      .addStringOption(opt => opt.setName('message_id').setDescription('The panel message ID (right-click it -> Copy Message ID)').setRequired(true))
+      .addChannelOption(opt => opt.setName('channel').setDescription('Channel the panel message is in').addChannelTypes(ChannelType.GuildText).setRequired(true))
+      .addStringOption(opt => opt.setName('emoji').setDescription('Emoji to react with (pick from the emoji picker)').setRequired(true))
+      .addRoleOption(opt => opt.setName('role').setDescription('Role to grant when someone reacts').setRequired(true)))
+    .addSubcommand(sub => sub
+      .setName('remove')
+      .setDescription('Remove an emoji-role pair from a panel')
+      .addStringOption(opt => opt.setName('message_id').setDescription('The panel message ID').setRequired(true))
+      .addChannelOption(opt => opt.setName('channel').setDescription('Channel the panel message is in').addChannelTypes(ChannelType.GuildText).setRequired(true))
+      .addStringOption(opt => opt.setName('emoji').setDescription('Emoji to remove').setRequired(true)))
+    .addSubcommand(sub => sub
+      .setName('list')
+      .setDescription('List emoji-role pairs on a panel')
+      .addStringOption(opt => opt.setName('message_id').setDescription('The panel message ID').setRequired(true))),
+
+  async execute(interaction) {
+    const sub = interaction.options.getSubcommand();
+
+    if (sub === 'create-panel') {
+      const channel = interaction.options.getChannel('channel');
+      const title = interaction.options.getString('title');
+      const description = interaction.options.getString('description');
+
+      const embed = new EmbedBuilder().setColor(0x5865f2).setTitle(title).setDescription(description);
+      const message = await channel.send({ embeds: [embed] }).catch(() => null);
+      if (!message) {
+        return interaction.reply({ content: `❌ Couldn't post in ${channel} — check I have permission to send messages there.`, ephemeral: true });
+      }
+
+      return interaction.reply({
+        content: `✅ Panel posted in ${channel}.\nMessage ID: \`${message.id}\`\n\nNow use \`/reactionroles add\` with that message ID to attach emoji-role pairs to it.`,
+        ephemeral: true,
+      });
+    }
+
+    if (sub === 'edit-panel') {
+      await interaction.deferReply({ ephemeral: true });
+      const messageId = interaction.options.getString('message_id').trim();
+      const channel = interaction.options.getChannel('channel');
+      const newTitle = interaction.options.getString('title');
+      const newDescription = interaction.options.getString('description');
+      const newChannel = interaction.options.getChannel('new_channel');
+
+      if (!newTitle && !newDescription && !newChannel) {
+        return interaction.editReply('❌ Give at least a new title, description, or channel — otherwise there\'s nothing to change.');
+      }
+
+      const message = await channel.messages.fetch(messageId).catch(() => null);
+      if (!message) {
+        return interaction.editReply(`❌ Couldn't find a message with ID \`${messageId}\` in ${channel}.`);
+      }
+      if (message.author.id !== interaction.client.user.id) {
+        return interaction.editReply(`❌ That message wasn't posted by me, so I can't edit it.`);
+      }
+      const existing = message.embeds[0];
+      if (!existing) {
+        return interaction.editReply(`❌ That message doesn't have an embed to edit — it doesn't look like a reaction role panel.`);
+      }
+
+      const embed = EmbedBuilder.from(existing)
+        .setTitle(newTitle ?? existing.title)
+        .setDescription(newDescription ?? existing.description);
+
+      const isMoving = newChannel && newChannel.id !== channel.id;
+
+      if (!isMoving) {
+        try {
+          await message.edit({ embeds: [embed] });
+        } catch (err) {
+          return interaction.editReply(`❌ Couldn't edit that message: ${err.message}`);
+        }
+        return interaction.editReply(`✅ Panel updated in ${channel}.`);
+      }
+
+      // Moving to a new channel: Discord messages can't change channel, so repost + re-attach
+      // reactions on the new message, repoint the DB rows at it, then clean up the old one.
+      const pairs = db.listReactionRolesForMessage(messageId);
+
+      let newMessage;
+      try {
+        newMessage = await newChannel.send({ embeds: [embed] });
+      } catch (err) {
+        return interaction.editReply(`❌ Couldn't post in ${newChannel} — check I have permission to send messages there. (${err.message})`);
+      }
+
+      const failedEmoji = [];
+      for (const pair of pairs) {
+        const emoji = { id: pair.emoji_id, name: pair.emoji_name };
+        try {
+          await newMessage.react(emojiUtil.toReactString(emoji));
+        } catch {
+          failedEmoji.push(emojiUtil.displayEmoji(emoji));
+        }
+      }
+
+      db.movePanel(messageId, newMessage.id, newChannel.id);
+      await message.delete().catch(() => {});
+
+      let reply = `✅ Panel moved to ${newChannel}.\nNew message ID: \`${newMessage.id}\``;
+      if (failedEmoji.length > 0) {
+        reply += `\n⚠️ Couldn't re-add these reactions (role mappings were still moved, but you'll need to react manually or re-add them): ${failedEmoji.join(', ')}`;
+      }
+      return interaction.editReply(reply);
+    }
+
+    if (sub === 'add') {
+      await interaction.deferReply({ ephemeral: true });
+      const messageId = interaction.options.getString('message_id').trim();
+      const channel = interaction.options.getChannel('channel');
+      const rawEmoji = interaction.options.getString('emoji');
+      const role = interaction.options.getRole('role');
+
+      const parsedEmoji = emojiUtil.parseEmojiInput(rawEmoji);
+      if (!parsedEmoji) {
+        return interaction.editReply(`❌ Couldn't understand \`${rawEmoji}\` as an emoji. Pick one from Discord's emoji picker rather than typing a shortcode.`);
+      }
+
+      if (role.managed || role.id === interaction.guild.id) {
+        return interaction.editReply(`❌ Can't use that role — it's managed by an integration or is the default @everyone role.`);
+      }
+      if (interaction.guild.members.me.roles.highest.position <= role.position) {
+        return interaction.editReply(`❌ I can't assign **${role.name}** — it's positioned above my own highest role. Move my role above it in Server Settings → Roles.`);
+      }
+
+      const message = await channel.messages.fetch(messageId).catch(() => null);
+      if (!message) {
+        return interaction.editReply(`❌ Couldn't find a message with ID \`${messageId}\` in ${channel}.`);
+      }
+
+      try {
+        await message.react(emojiUtil.toReactString(parsedEmoji));
+      } catch (err) {
+        return interaction.editReply(`❌ Couldn't react with that emoji: ${err.message}. If it's a custom emoji, make sure it's from this server (or one I'm also in).`);
+      }
+
+      db.addReactionRole(interaction.guildId, channel.id, messageId, parsedEmoji.id, parsedEmoji.name, role.id, null);
+
+      return interaction.editReply(`✅ ${emojiUtil.displayEmoji(parsedEmoji)} on that panel now grants **${role.name}**.`);
+    }
+
+    if (sub === 'remove') {
+      await interaction.deferReply({ ephemeral: true });
+      const messageId = interaction.options.getString('message_id').trim();
+      const channel = interaction.options.getChannel('channel');
+      const rawEmoji = interaction.options.getString('emoji');
+
+      const parsedEmoji = emojiUtil.parseEmojiInput(rawEmoji);
+      if (!parsedEmoji) {
+        return interaction.editReply(`❌ Couldn't understand \`${rawEmoji}\` as an emoji.`);
+      }
+
+      const changes = db.removeReactionRole(messageId, parsedEmoji.id, parsedEmoji.name);
+      if (changes === 0) {
+        return interaction.editReply(`⚠️ That emoji wasn't attached to that message.`);
+      }
+
+      const message = await channel.messages.fetch(messageId).catch(() => null);
+      if (message) {
+        const reaction = message.reactions.cache.find(r =>
+          parsedEmoji.id ? r.emoji.id === parsedEmoji.id : r.emoji.name === parsedEmoji.name
+        );
+        if (reaction) await reaction.users.remove(interaction.client.user.id).catch(() => {});
+      }
+
+      return interaction.editReply(`🗑️ Removed ${emojiUtil.displayEmoji(parsedEmoji)} from that panel.`);
+    }
+
+    if (sub === 'list') {
+      const messageId = interaction.options.getString('message_id').trim();
+      const rows = db.listReactionRolesForMessage(messageId);
+      if (rows.length === 0) {
+        return interaction.reply({ content: 'No emoji-role pairs are attached to that message yet.', ephemeral: true });
+      }
+      const embed = new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle('Reaction roles on this panel')
+        .setDescription(rows.map(r => {
+          const emoji = emojiUtil.displayEmoji({ id: r.emoji_id, name: r.emoji_name });
+          return `${emoji} → <@&${r.role_id}>`;
+        }).join('\n'));
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+  },
+};
+RR_CMD_EOF
+
+echo "Writing src/web/public/index.html..."
+cat > src/web/public/index.html << 'RR_HTML_EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -880,3 +1139,14 @@
 </script>
 </body>
 </html>
+RR_HTML_EOF
+
+echo ""
+echo "✅ Done. Two files updated (backups saved as *.bak)."
+echo ""
+echo "Next steps:"
+echo "  1. Review the changes (git --no-pager diff)."
+echo "  2. Re-deploy slash commands (the /reactionroles add description text changed):"
+echo "       npm run deploy-commands:guild   (instant, for testing in one server)"
+echo "       npm run deploy-commands         (global, can take up to an hour)"
+echo "  3. Restart the bot / dashboard process."
