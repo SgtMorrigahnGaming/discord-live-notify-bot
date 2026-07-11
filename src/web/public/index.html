@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Live & Upload Notifier</title>
+<title>VVC Skald Bot</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
@@ -77,18 +77,58 @@
   }
   .btn-discord:hover { background: #4954c4; transform: translateY(-1px); }
 
-  /* --- App shell --- */
-  #app { display: none; max-width: 1000px; margin: 0 auto; padding: 24px; }
+  /* --- App shell (sidebar layout) --- */
+  #app { display: none; }
+  .app-shell { display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 230px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--panel-border);
+    padding: 20px 16px; display: flex; flex-direction: column; gap: 20px;
+  }
+  .sidebar-brand { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
+  .sidebar-brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .sidebar-brand span.display { font-size: 15px; font-weight: 600; }
+
+  select#guildSelect {
+    background: #1c1f28; color: var(--text); border: 1px solid var(--panel-border);
+    padding: 10px 12px; border-radius: var(--radius); font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px; width: 100%;
+  }
+
+  .nav-items { display: flex; flex-direction: column; gap: 2px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 8px;
+    background: transparent; border: none; border-left: 3px solid transparent; color: var(--text-dim);
+    text-align: left; padding: 10px 10px; border-radius: 6px; cursor: pointer;
+    font-family: 'Space Grotesk', sans-serif; font-size: 13px; width: 100%;
+  }
+  .nav-item .swatch { width: 8px; height: 8px; border-radius: 2px; background: var(--nav-accent, var(--text-dim)); flex-shrink: 0; }
+  .nav-item:hover { background: #1c1f28; color: var(--text); }
+  .nav-item.active { background: #1c1f28; color: var(--text); border-left-color: var(--nav-accent, var(--twitch)); }
+
+  .sidebar-footer { margin-top: auto; display: flex; gap: 10px; padding: 0 4px; }
+  .sidebar-footer a { color: var(--text-dim); font-size: 11px; text-decoration: none; }
+  .sidebar-footer a:hover { color: var(--text); text-decoration: underline; }
+
+  .main-area { flex: 1; min-width: 0; }
+  .main-area .content { max-width: 780px; margin: 0 auto; padding: 24px; }
+
+  @media (max-width: 800px) {
+    .app-shell { flex-direction: column; }
+    .sidebar { width: 100%; flex-direction: row; align-items: center; padding: 12px 16px; gap: 14px; overflow-x: auto; }
+    .sidebar-brand { flex-shrink: 0; }
+    select#guildSelect { width: auto; flex-shrink: 0; }
+    .nav-items { flex-direction: row; flex-shrink: 0; }
+    .nav-item { white-space: nowrap; }
+    .sidebar-footer { margin-top: 0; margin-left: auto; flex-shrink: 0; }
+  }
+
   header.topbar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 4px 24px;
+    display: flex; align-items: center; justify-content: flex-end;
+    padding: 16px 24px;
     border-bottom: 1px solid var(--panel-border);
-    margin-bottom: 28px;
     flex-wrap: wrap; gap: 12px;
   }
-  .brand { display: flex; align-items: center; gap: 10px; }
-  .brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
-  .brand span.display { font-size: 18px; font-weight: 600; }
   .topbar-right { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
   .support-note { display: flex; align-items: center; gap: 8px; }
   .support-note span { font-size: 12px; color: var(--text-dim); }
@@ -109,14 +149,8 @@
   }
   .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
 
-  select#guildSelect {
-    background: var(--panel); color: var(--text); border: 1px solid var(--panel-border);
-    padding: 10px 14px; border-radius: var(--radius); font-family: 'Space Grotesk', sans-serif;
-    font-size: 14px; margin-bottom: 24px; width: 100%; max-width: 320px;
-  }
-
-  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  @media (max-width: 800px) { .panels { grid-template-columns: 1fr; } }
+  .module-page { display: none; }
+  .module-page.active { display: block; }
 
   .panel {
     background: var(--panel); border: 1px solid var(--panel-border);
@@ -162,8 +196,6 @@
   }
   #toast.ok { border-color: var(--ok); color: var(--ok); }
   #toast.err { border-color: var(--err); color: var(--err); }
-
-  .panel.full { grid-column: 1 / -1; }
 
   .source-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
   @media (max-width: 700px) { .source-cards { grid-template-columns: 1fr; } }
@@ -219,92 +251,123 @@
 
   <div id="loginScreen">
     <div class="on-air"><span class="dot"></span> WAITING FOR SIGNAL</div>
-    <h1>Live & Upload Notifier</h1>
-    <p>Manage which Twitch streamers and YouTube channels announce to your server — no command line required.</p>
+    <h1>VVC Skald Bot</h1>
+    <p>Manage Twitch/YouTube announcements, free game alerts, reaction roles, and welcome messages — no command line required.</p>
     <a class="btn-discord" href="/auth/discord/login">Continue with Discord</a>
+    <div style="margin-top: 8px;">
+      <a href="/tos" style="color: var(--text-dim); font-size: 12px; margin-right: 16px;">Terms of Service</a>
+      <a href="/privacy" style="color: var(--text-dim); font-size: 12px;">Privacy Policy</a>
+    </div>
   </div>
 
   <div id="app">
-    <header class="topbar">
-      <div class="brand"><span class="dot"></span><span class="display">Live & Upload Notifier</span></div>
-      <div class="topbar-right">
-        <div class="support-note">
-          <span>If you like the bot, donations are always appreciated</span>
-          <a class="support-icon" href="https://paypal.me/MorrigahnGaming" target="_blank" rel="noopener" title="Donate via PayPal">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 8h4a2.5 2.5 0 0 1 0 5H9V8z"/><path d="M9 13v4"/></svg>
-          </a>
-          <a class="support-icon" href="https://ko-fi.com/sgt_morrigahngaming" target="_blank" rel="noopener" title="Support on Ko-fi">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13a3 3 0 0 1 0 6h-1"/><path d="M4 8v8a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/><path d="M8 3c-.5 1 -1 1.5 0 3"/><path d="M11 3c-.5 1 -1 1.5 0 3"/></svg>
-          </a>
+    <div class="app-shell">
+      <nav class="sidebar">
+        <div class="sidebar-brand"><span class="dot"></span><span class="display">VVC Skald Bot</span></div>
+        <select id="guildSelect"></select>
+        <div class="nav-items">
+          <button class="nav-item active" data-module="twitch" style="--nav-accent: #9146ff;"><span class="swatch"></span>Twitch</button>
+          <button class="nav-item" data-module="youtube" style="--nav-accent: #ff3b3b;"><span class="swatch"></span>YouTube</button>
+          <button class="nav-item" data-module="freegames" style="--nav-accent: #66c0f4;"><span class="swatch"></span>Free games</button>
+          <button class="nav-item" data-module="welcome" style="--nav-accent: #3ddc97;"><span class="swatch"></span>Welcome</button>
+          <button class="nav-item" data-module="reactionroles" style="--nav-accent: #9146ff;"><span class="swatch"></span>Reaction roles</button>
         </div>
-        <div class="user-area">
-          <img id="userAvatar" src="" alt="" />
-          <span class="name" id="userName"></span>
-          <button class="btn-ghost" id="logoutBtn">Log out</button>
+        <div class="sidebar-footer">
+          <a href="/tos" target="_blank">Terms</a>
+          <a href="/privacy" target="_blank">Privacy</a>
+        </div>
+      </nav>
+
+      <div class="main-area">
+        <header class="topbar">
+          <div class="topbar-right">
+            <div class="support-note">
+              <span>If you like the bot, donations are always appreciated</span>
+              <a class="support-icon" href="https://paypal.me/MorrigahnGaming" target="_blank" rel="noopener" title="Donate via PayPal">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 8h4a2.5 2.5 0 0 1 0 5H9V8z"/><path d="M9 13v4"/></svg>
+              </a>
+              <a class="support-icon" href="https://ko-fi.com/sgt_morrigahngaming" target="_blank" rel="noopener" title="Support on Ko-fi">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13a3 3 0 0 1 0 6h-1"/><path d="M4 8v8a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/><path d="M8 3c-.5 1 -1 1.5 0 3"/><path d="M11 3c-.5 1 -1 1.5 0 3"/></svg>
+              </a>
+            </div>
+            <div class="user-area">
+              <img id="userAvatar" src="" alt="" />
+              <span class="name" id="userName"></span>
+              <button class="btn-ghost" id="logoutBtn">Log out</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="content">
+          <section class="module-page active" id="module-twitch">
+            <section class="panel twitch">
+              <h2><span class="swatch"></span>Twitch streamers</h2>
+              <div id="twitchList"></div>
+              <form class="add-form" id="twitchForm">
+                <input type="text" id="twitchUsername" placeholder="Twitch username" required />
+                <select id="twitchChannel" required></select>
+                <select id="twitchRole"><option value="">No role ping</option></select>
+                <input type="text" id="twitchMessage" placeholder="Custom message (optional) — {streamer} {title} {game} {url}" />
+                <button type="submit">Track streamer</button>
+              </form>
+            </section>
+          </section>
+
+          <section class="module-page" id="module-youtube">
+            <section class="panel youtube">
+              <h2><span class="swatch"></span>YouTube channels</h2>
+              <div id="youtubeList"></div>
+              <form class="add-form" id="youtubeForm">
+                <input type="text" id="youtubeUrl" placeholder="Channel @handle or URL" required />
+                <select id="youtubeChannel" required></select>
+                <select id="youtubeRole"><option value="">No role ping</option></select>
+                <input type="text" id="youtubeMessage" placeholder="Custom message (optional) — {channel} {title} {url}" />
+                <button type="submit">Track channel</button>
+              </form>
+            </section>
+          </section>
+
+          <section class="module-page" id="module-freegames">
+            <section class="panel" style="--accent: #66c0f4;">
+              <h2><span class="swatch"></span>Free games</h2>
+              <div class="source-cards" id="freeGamesCards"></div>
+            </section>
+          </section>
+
+          <section class="module-page" id="module-welcome">
+            <section class="panel" style="--accent: #3ddc97;">
+              <h2><span class="swatch"></span>Welcome new members</h2>
+              <form class="add-form" id="welcomeForm">
+                <select id="welcomeChannel" required></select>
+                <textarea class="welcome-dm" id="welcomeDm" placeholder="Optional DM message — {user} {server}"></textarea>
+                <button type="submit">Save welcome settings</button>
+              </form>
+              <div class="toggle-row" id="welcomeToggleRow" style="display:none;">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="welcomeEnabledToggle" />
+                  <span class="toggle-slider"></span>
+                </label>
+                <span id="welcomeToggleLabel">Welcome messages are on</span>
+              </div>
+              <button class="btn-ghost" id="welcomePreviewBtn" type="button" style="margin-top: 10px;">Preview card</button>
+              <img id="welcomePreviewImg" alt="Welcome card preview" />
+            </section>
+          </section>
+
+          <section class="module-page" id="module-reactionroles">
+            <section class="panel" style="--accent: #9146ff;">
+              <h2><span class="swatch"></span>Reaction roles</h2>
+              <div id="rrPanelsList"></div>
+              <form class="add-form" id="rrCreateForm">
+                <select id="rrChannel" required></select>
+                <input type="text" id="rrTitle" placeholder="Panel title" required />
+                <input type="text" id="rrDescription" placeholder="Panel description" required />
+                <button type="submit">Create new panel</button>
+              </form>
+            </section>
+          </section>
         </div>
       </div>
-    </header>
-
-    <select id="guildSelect"></select>
-
-    <div class="panels">
-      <section class="panel twitch">
-        <h2><span class="swatch"></span>Twitch streamers</h2>
-        <div id="twitchList"></div>
-        <form class="add-form" id="twitchForm">
-          <input type="text" id="twitchUsername" placeholder="Twitch username" required />
-          <select id="twitchChannel" required></select>
-          <select id="twitchRole"><option value="">No role ping</option></select>
-          <input type="text" id="twitchMessage" placeholder="Custom message (optional) — {streamer} {title} {game} {url}" />
-          <button type="submit">Track streamer</button>
-        </form>
-      </section>
-
-      <section class="panel youtube">
-        <h2><span class="swatch"></span>YouTube channels</h2>
-        <div id="youtubeList"></div>
-        <form class="add-form" id="youtubeForm">
-          <input type="text" id="youtubeUrl" placeholder="Channel @handle or URL" required />
-          <select id="youtubeChannel" required></select>
-          <select id="youtubeRole"><option value="">No role ping</option></select>
-          <input type="text" id="youtubeMessage" placeholder="Custom message (optional) — {channel} {title} {url}" />
-          <button type="submit">Track channel</button>
-        </form>
-      </section>
-
-      <section class="panel full" style="--accent: #66c0f4;">
-        <h2><span class="swatch"></span>Free games</h2>
-        <div class="source-cards" id="freeGamesCards"></div>
-      </section>
-
-      <section class="panel full" style="--accent: #3ddc97;">
-        <h2><span class="swatch"></span>Welcome new members</h2>
-        <form class="add-form" id="welcomeForm">
-          <select id="welcomeChannel" required></select>
-          <textarea class="welcome-dm" id="welcomeDm" placeholder="Optional DM message — {user} {server}"></textarea>
-          <button type="submit">Save welcome settings</button>
-        </form>
-        <div class="toggle-row" id="welcomeToggleRow" style="display:none;">
-          <label class="toggle-switch">
-            <input type="checkbox" id="welcomeEnabledToggle" />
-            <span class="toggle-slider"></span>
-          </label>
-          <span id="welcomeToggleLabel">Welcome messages are on</span>
-        </div>
-        <button class="btn-ghost" id="welcomePreviewBtn" type="button" style="margin-top: 10px;">Preview card</button>
-        <img id="welcomePreviewImg" alt="Welcome card preview" />
-      </section>
-
-      <section class="panel full" style="--accent: #9146ff;">
-        <h2><span class="swatch"></span>Reaction roles</h2>
-        <div id="rrPanelsList"></div>
-        <form class="add-form" id="rrCreateForm">
-          <select id="rrChannel" required></select>
-          <input type="text" id="rrTitle" placeholder="Panel title" required />
-          <input type="text" id="rrDescription" placeholder="Panel description" required />
-          <button type="submit">Create new panel</button>
-        </form>
-      </section>
     </div>
   </div>
 
@@ -666,6 +729,15 @@
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await fetch('/auth/logout', { method: 'POST' });
     location.reload();
+  });
+
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.module-page').forEach(p => p.classList.remove('active'));
+      document.getElementById('module-' + btn.dataset.module).classList.add('active');
+    });
   });
 
   init();

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Privacy Policy — VVC Skald Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e0f13; --panel: #16181f; --panel-border: #262935;
+    --text: #e8e9ee; --text-dim: #8a8d9a; --accent: #9146ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: 'Inter', sans-serif; line-height: 1.65;
+  }
+  h1, h2, .display { font-family: 'Space Grotesk', sans-serif; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }
+  .back { color: var(--text-dim); text-decoration: none; font-size: 13px; }
+  .back:hover { color: var(--text); }
+  h1 { font-size: 32px; margin: 24px 0 4px; }
+  .updated { color: var(--text-dim); font-size: 13px; margin-bottom: 40px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; color: var(--accent); }
+  p, li { color: #c3c5d0; font-size: 15px; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  a { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--panel-border); color: #c3c5d0; }
+  th { color: var(--text); font-family: 'Space Grotesk', sans-serif; font-weight: 600; }
+  .note {
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px;
+    padding: 16px 18px; font-size: 14px; color: var(--text-dim); margin: 24px 0;
+  }
+  .good { color: #3ddc97; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← Back</a>
+  <h1>Privacy Policy</h1>
+  <div class="updated">Last updated: July 2026</div>
+
+  <p>This explains what data VVC Skald Bot ("the bot") stores, why, and what happens to it. The bot is self-hosted by an individual operator, not run as a company or service with any data-sharing partners or advertisers.</p>
+
+  <h2>1. What's stored, and why</h2>
+  <p>To provide its features, the bot stores the following in its own database:</p>
+  <table>
+    <tr><th>Data</th><th>Why</th></tr>
+    <tr><td>Discord server (guild) ID</td><td>To know which server a setting belongs to</td></tr>
+    <tr><td>Channel IDs you configure</td><td>To know where to post announcements</td></tr>
+    <tr><td>Role IDs you configure</td><td>For role pings and reaction roles / welcome roles</td></tr>
+    <tr><td>Twitch usernames / YouTube channel IDs you add</td><td>To check if they've gone live or posted a new video</td></tr>
+    <tr><td>Custom announcement or welcome message text you write</td><td>To post it when the relevant event happens</td></tr>
+    <tr><td>Reaction role panel message IDs and emoji-role mappings</td><td>To grant the right role when someone reacts</td></tr>
+  </table>
+
+  <p>If you log into the web dashboard, the bot temporarily holds your Discord user ID, username, avatar, and which servers you can manage in a login session (a browser cookie). This session data is <strong>not</strong> written to the database — it lives only in server memory and automatically expires after 7 days or when you log out.</p>
+
+  <h2>2. What's <span class="good">not</span> collected</h2>
+  <ul>
+    <li>The bot does not read or store the content of your messages</li>
+    <li>The bot does not read direct messages</li>
+    <li>No analytics, tracking pixels, or third-party advertising of any kind</li>
+    <li>Your data is never sold, rented, or shared with advertisers</li>
+  </ul>
+
+  <h2>3. Third-party services contacted</h2>
+  <p>To check for live streams, new videos, and free games, the bot makes outgoing requests to the following services on a timer. These requests use publicly available data (e.g. "is this Twitch username currently live") — the bot doesn't authorize into your Twitch, YouTube, or Google account, and none of these services receive any of your Discord data:</p>
+  <ul>
+    <li><strong>Twitch</strong> — to check whether tracked streamers are live</li>
+    <li><strong>YouTube</strong> — public RSS feeds only, to check for new uploads</li>
+    <li><strong>Epic Games Store</strong> — to check current free games</li>
+    <li><strong>GamerPower</strong> — to check current Steam/GOG giveaways</li>
+    <li><strong>Discord</strong> — to operate at all, and for dashboard login (OAuth)</li>
+  </ul>
+
+  <h2>4. Data retention & deletion</h2>
+  <p>You're in control of this data at all times:</p>
+  <ul>
+    <li>Remove any individual streamer, channel, panel, or setting anytime via slash commands or the dashboard</li>
+    <li><strong>When the bot is removed from your server, all of that server's stored data is automatically and immediately deleted</strong> — there's no need to request this separately</li>
+    <li>Dashboard login sessions expire automatically after 7 days, or immediately when you log out</li>
+  </ul>
+
+  <h2>5. Where data is stored</h2>
+  <p>Data is stored in a database on the operator's own server — not a third-party cloud service, not distributed to other parties. Reasonable security measures are used, but as with any online service, no method of storage can be guaranteed 100% secure.</p>
+
+  <h2>6. Children's privacy</h2>
+  <p>The bot follows Discord's own age requirements. It's not intended for use by anyone who doesn't meet Discord's eligibility requirements, and no data is knowingly collected outside the context of normal bot operation on a Discord server.</p>
+
+  <h2>7. Your rights</h2>
+  <p>You can request details of what's stored for your server, or request early deletion, at any time using the contact details below — though as noted above, removing the bot from your server already deletes everything automatically.</p>
+
+  <h2>8. Changes to this policy</h2>
+  <p>This policy may be updated as the bot's features change. Significant changes will be noted where practical (e.g. an announcement in the bot's support server).</p>
+
+  <h2>9. Contact</h2>
+  <div class="note">
+    Questions or data requests can be sent via:
+    <ul>
+      <li>Discord: <a href="https://discord.gg/VyT7nKZ55V">VVC Discord Invite</a></li>
+      <li>Email: <a href="mailto:discord@morrigahngaming.no">discord@morrigahngaming.no</a></li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

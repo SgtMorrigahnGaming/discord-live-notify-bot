@@ -73,6 +73,10 @@ function start(client) {
   // ---- API ----
   app.use('/api', buildApiRouter(client));
 
+  // ---- Public legal pages (no login required — must stay reachable by anyone) ----
+  app.get('/tos', (req, res) => res.sendFile(path.join(__dirname, 'public', 'tos.html')));
+  app.get('/privacy', (req, res) => res.sendFile(path.join(__dirname, 'public', 'privacy.html')));
+
   // ---- Static frontend ----
   app.use(express.static(path.join(__dirname, 'public')));
   // Catch-all so client-side routes still load index.html (Express 5 no longer accepts a bare '*' route)

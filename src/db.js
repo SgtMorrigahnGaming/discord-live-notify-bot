@@ -242,7 +242,21 @@ setWelcomeEnabled(guildId, enabled) {
   hasAnnouncedFreeGame(source, externalId) {
     return !!db.prepare(`SELECT 1 FROM freegames_announced WHERE source = ? AND external_id = ?`).get(source, externalId);
   },
-  markFreeGameAnnounced(source, externalId) {
+markFreeGameAnnounced(source, externalId) {
     db.prepare(`INSERT OR IGNORE INTO freegames_announced (source, external_id) VALUES (?, ?)`).run(source, externalId);
+  },
+
+  // ---- Full data purge (called when the bot is removed from a server) ----
+  purgeGuildData(guildId) {
+    const tx = db.transaction((id) => {
+      db.prepare(`DELETE FROM twitch_subscriptions WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM youtube_subscriptions WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM reaction_roles WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM guild_welcome_config WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM freegames_subscriptions WHERE guild_id = ?`).run(id);
+    });
+    tx(guildId);
+    this.pruneOrphanTwitchState();
+    this.pruneOrphanYoutubeState();
   },
 };

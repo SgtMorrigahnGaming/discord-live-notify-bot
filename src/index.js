@@ -6,9 +6,10 @@ const logger = require('./utils/logger');
 const twitchPoller = require('./services/twitchPoller');
 const youtubePoller = require('./services/youtubePoller');
 const freeGamesPoller = require('./services/freeGamesPoller');
-const webServer = require('./web/server');const reactionRoleHandler = require('./services/reactionRoleHandler');
+const webServer = require('./web/server');
+const reactionRoleHandler = require('./services/reactionRoleHandler');
 const welcomeHandler = require('./services/welcomeHandler');
-
+const guildCleanupHandler = require('./services/guildCleanupHandler');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -35,6 +36,7 @@ client.once('clientReady', () => {
   webServer.start(client);
   reactionRoleHandler.register(client);
   welcomeHandler.register(client);
+  guildCleanupHandler.register(client);
 });
 
 client.on('interactionCreate', async (interaction) => {
