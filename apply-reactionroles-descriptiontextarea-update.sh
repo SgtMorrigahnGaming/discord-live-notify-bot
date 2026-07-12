@@ -1,3 +1,51 @@
+#!/usr/bin/env bash
+# apply-reactionroles-descriptiontextarea-update.sh
+#
+# Turns the reaction-role panel "description" field into a proper multi-line textarea on
+# the dashboard (both the create-panel form and the unified edit view), instead of a
+# single-line input that word-wraps but can't hold actual line breaks. Discord embed
+# descriptions already support markdown — bold/italic, "- " bullet points, blank-line
+# paragraph breaks — so this makes it possible to write out full rules lists, formatted,
+# the way admins would actually want for a reaction-role panel.
+#
+# No backend change needed: EmbedBuilder#setDescription just takes the string as-is and
+# Discord's client renders the markdown, so this is a dashboard-only patch.
+#
+# Requires apply-reactionroles-emojipicker-update.sh to already be applied (this one is
+# layered on top of that version of index.html).
+#
+# What this touches:
+#   - src/web/public/index.html  (description fields become <textarea>, with a max length
+#                                  matching Discord's 4096-char embed description limit and
+#                                  a short markdown-formatting hint)
+#
+# Run this from the repo root.
+
+set -euo pipefail
+
+if [ ! -f "package.json" ] || [ ! -d "src" ]; then
+  echo "❌ Run this from the repo root (where package.json and src/ live)." >&2
+  exit 1
+fi
+
+if ! grep -q "rr-emoji-pick-btn" src/web/public/index.html 2>/dev/null; then
+  echo "⚠️  This builds on the emoji picker patch, which isn't applied yet." >&2
+  echo "   Run apply-reactionroles-emojipicker-update.sh first (and the two before it, if you haven't)." >&2
+  exit 1
+fi
+
+backup() {
+  if [ -f "$1" ]; then
+    cp "$1" "$1.bak"
+    echo "  backed up $1 -> $1.bak"
+  fi
+}
+
+echo "Backing up files about to change..."
+backup "src/web/public/index.html"
+
+echo "Writing src/web/public/index.html..."
+cat > src/web/public/index.html << 'RR_HTML_EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -235,6 +283,13 @@
   }
   #welcomePreviewImg { width: 100%; border-radius: 10px; margin-top: 12px; display: none; }
 
+  textarea#rrDescription, textarea.rr-edit-description {
+    background: #1c1f28; border: 1px solid var(--panel-border); color: var(--text);
+    padding: 9px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; width: 100%;
+    min-height: 90px; resize: vertical; line-height: 1.4;
+  }
+  .rr-description-hint { font-size: 11px; color: var(--text-dim); margin-top: -4px; }
+
   .rr-panel { background: #1c1f28; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
   .rr-panel .rr-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
   .rr-panel .rr-panel-title { font-size: 12px; color: var(--text-dim); }
@@ -402,7 +457,8 @@
               <form class="add-form" id="rrCreateForm">
                 <select id="rrChannel" required></select>
                 <input type="text" id="rrTitle" placeholder="Panel title" required />
-                <input type="text" id="rrDescription" placeholder="Panel description" required />
+                <textarea id="rrDescription" maxlength="4096" placeholder="Panel description — supports Discord markdown: **bold**, *italic*, and lines starting with '- ' become bullet points" required></textarea>
+                <div class="rr-description-hint">Tip: press Enter for new lines, start a line with "- " for a bullet point.</div>
                 <button type="submit">Create new panel</button>
               </form>
             </section>
@@ -684,7 +740,8 @@
           <div class="rr-edit-section">
             <h4>Panel details</h4>
             <input type="text" class="rr-edit-title" placeholder="Title (leave blank to keep current)" />
-            <input type="text" class="rr-edit-description" placeholder="Description (leave blank to keep current)" />
+            <textarea class="rr-edit-description" maxlength="4096" placeholder="Description (leave blank to keep current) — supports **bold**, *italic*, '- ' bullet points"></textarea>
+            <div class="rr-description-hint">Tip: press Enter for new lines, start a line with "- " for a bullet point.</div>
             <select class="rr-edit-channel">
               ${channels.map(c => `<option value="${c.id}" ${c.id === p.channel_id ? 'selected' : ''}>#${c.name}</option>`).join('')}
             </select>
@@ -957,3 +1014,11 @@
 </script>
 </body>
 </html>
+RR_HTML_EOF
+
+echo ""
+echo "✅ Done. src/web/public/index.html updated (backup saved as index.html.bak)."
+echo ""
+echo "Next steps:"
+echo "  1. Review the changes (git --no-pager diff)."
+echo "  2. Restart the bot / dashboard process — pure frontend change, no command redeploy needed."

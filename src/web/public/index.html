@@ -235,6 +235,13 @@
   }
   #welcomePreviewImg { width: 100%; border-radius: 10px; margin-top: 12px; display: none; }
 
+  textarea#rrDescription, textarea.rr-edit-description {
+    background: #1c1f28; border: 1px solid var(--panel-border); color: var(--text);
+    padding: 9px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; width: 100%;
+    min-height: 90px; resize: vertical; line-height: 1.4;
+  }
+  .rr-description-hint { font-size: 11px; color: var(--text-dim); margin-top: -4px; }
+
   .rr-panel { background: #1c1f28; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
   .rr-panel .rr-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
   .rr-panel .rr-panel-title { font-size: 12px; color: var(--text-dim); }
@@ -264,9 +271,28 @@
   .rr-mapping-edit-row button { flex-shrink: 0; width: auto; padding: 6px 10px; font-size: 12px; }
   .rr-mapping-edit-row button.remove { background: transparent; border: 1px solid var(--panel-border); color: var(--err); }
 
-  .rr-add-mapping { display: flex; gap: 6px; margin-top: 4px; }
+  .rr-add-mapping { display: flex; gap: 6px; margin-top: 4px; position: relative; }
   .rr-add-mapping input, .rr-add-mapping select { flex: 1; min-width: 0; }
   .rr-add-mapping button { flex-shrink: 0; width: auto; padding: 9px 14px; }
+
+  .rr-emoji-img { width: 20px; height: 20px; vertical-align: middle; }
+  .rr-emoji-pick-btn { flex-shrink: 0; width: auto; padding: 9px 12px; background: transparent; border: 1px solid var(--panel-border); font-size: 15px; }
+
+  .rr-emoji-popover {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+    width: 260px; max-height: 240px; overflow-y: auto;
+    background: #1c1f28; border: 1px solid var(--panel-border); border-radius: 8px;
+    padding: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .rr-emoji-popover input { margin-bottom: 6px; }
+  .rr-emoji-popover-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+  .rr-emoji-pick-item {
+    display: flex; align-items: center; justify-content: center;
+    padding: 4px; border-radius: 6px; cursor: pointer; background: transparent; border: none;
+  }
+  .rr-emoji-pick-item:hover { background: #262a36; }
+  .rr-emoji-pick-item img { width: 24px; height: 24px; }
+  .rr-emoji-popover-empty { font-size: 12px; color: var(--text-dim); padding: 6px 2px; }
 </style>
 </head>
 <body>
@@ -383,7 +409,8 @@
               <form class="add-form" id="rrCreateForm">
                 <select id="rrChannel" required></select>
                 <input type="text" id="rrTitle" placeholder="Panel title" required />
-                <input type="text" id="rrDescription" placeholder="Panel description" required />
+                <textarea id="rrDescription" maxlength="4096" placeholder="Panel description — supports Discord markdown: **bold**, *italic*, and lines starting with '- ' become bullet points" required></textarea>
+                <div class="rr-description-hint">Tip: press Enter for new lines, start a line with "- " for a bullet point.</div>
                 <button type="submit">Create new panel</button>
               </form>
             </section>
@@ -445,7 +472,7 @@
 
   async function loadGuild(guildId) {
     state.guildId = guildId;
-    const [channels, roles, twitchSubs, youtubeSubs, freeGamesSubs, welcomeConfig, rrPanels] = await Promise.all([
+    const [channels, roles, twitchSubs, youtubeSubs, freeGamesSubs, welcomeConfig, rrPanels, emojis] = await Promise.all([
       api(`/guilds/${guildId}/channels`),
       api(`/guilds/${guildId}/roles`),
       api(`/guilds/${guildId}/twitch`),
@@ -453,6 +480,7 @@
       api(`/guilds/${guildId}/freegames`),
       api(`/guilds/${guildId}/welcome`),
       api(`/guilds/${guildId}/reactionroles/panels`),
+      api(`/guilds/${guildId}/emojis`),
     ]);
     state.channels = channels;
     state.roles = roles;
@@ -471,7 +499,7 @@
     renderYoutubeList(youtubeSubs, channels, roles);
     renderFreeGames(freeGamesSubs, channels);
     renderWelcome(welcomeConfig, channels);
-    renderReactionRoles(rrPanels, channels, roles);
+    renderReactionRoles(rrPanels, channels, roles, emojis);
   }
 
   function channelName(channels, id) { return channels.find(c => c.id === id)?.name || id; }
@@ -623,18 +651,39 @@
   });
 
   // ---- Reaction roles ----
-  function renderReactionRoles(panels, channels, roles) {
-    state.rrData = { panels, channels, roles }; // cached so Edit/Done can toggle instantly, no refetch
+  function renderReactionRoles(panels, channels, roles, emojis) {
+    state.rrData = { panels, channels, roles, emojis }; // cached so Edit/Done can toggle instantly, no refetch
     const el = document.getElementById('rrPanelsList');
     if (panels.length === 0) { el.innerHTML = '<div class="empty-state">No reaction role panels yet — create one below.</div>'; return; }
 
+    const emojiDisplay = m => {
+      if (!m.emoji_id) return m.emoji_name; // standard unicode emoji, render as-is
+      const known = emojis.find(e => e.id === m.emoji_id);
+      if (known) return `<img class="rr-emoji-img" src="${known.url}" alt="${known.name}" title=":${known.name}:" />`;
+      return `[custom:${m.emoji_name}]`; // emoji no longer exists on the server
+    };
+
+    const pickerHtml = `
+      <button type="button" class="rr-emoji-pick-btn" title="Pick a server emoji">🙂</button>
+      <div class="rr-emoji-popover" style="display:none;">
+        <input type="text" class="rr-emoji-search" placeholder="Search emoji..." />
+        <div class="rr-emoji-popover-grid">
+          ${emojis.length === 0
+            ? '<div class="rr-emoji-popover-empty">No custom emoji found on this server.</div>'
+            : emojis.map(e => `
+              <button type="button" class="rr-emoji-pick-item" data-emoji-value="${e.animated ? 'a' : ''}:${e.name}:${e.id}" data-emoji-name="${e.name.toLowerCase()}" title=":${e.name}:">
+                <img src="${e.url}" alt="${e.name}" />
+              </button>
+            `).join('')}
+        </div>
+      </div>`;
+
     el.innerHTML = panels.map(p => {
       const isOpen = state.expandedPanels.has(p.message_id);
-      const mappingLine = m => `${m.emoji_id ? `[custom:${m.emoji_name}]` : m.emoji_name} → @${roleName(roles, m.role_id)}`;
 
       const summary = `
         <div class="rr-summary">
-          ${p.mappings.map(m => `<div class="rr-summary-row">${mappingLine(m)}</div>`).join('')
+          ${p.mappings.map(m => `<div class="rr-summary-row">${emojiDisplay(m)} → @${roleName(roles, m.role_id)}</div>`).join('')
             || '<div class="empty-state">No emoji-role pairs yet.</div>'}
         </div>`;
 
@@ -643,7 +692,8 @@
           <div class="rr-edit-section">
             <h4>Panel details</h4>
             <input type="text" class="rr-edit-title" placeholder="Title (leave blank to keep current)" />
-            <input type="text" class="rr-edit-description" placeholder="Description (leave blank to keep current)" />
+            <textarea class="rr-edit-description" maxlength="4096" placeholder="Description (leave blank to keep current) — supports **bold**, *italic*, '- ' bullet points"></textarea>
+            <div class="rr-description-hint">Tip: press Enter for new lines, start a line with "- " for a bullet point.</div>
             <select class="rr-edit-channel">
               ${channels.map(c => `<option value="${c.id}" ${c.id === p.channel_id ? 'selected' : ''}>#${c.name}</option>`).join('')}
             </select>
@@ -656,7 +706,7 @@
             <div class="hint">Change the role and hit Update, or remove a pair. To swap the emoji itself, remove it and add the new one below.</div>
             ${p.mappings.map(m => `
               <div class="rr-mapping-edit-row" data-emoji-id="${m.emoji_id || ''}" data-emoji-name="${m.emoji_name}">
-                <span class="rr-mapping-emoji">${m.emoji_id ? `[custom:${m.emoji_name}]` : m.emoji_name}</span>
+                <span class="rr-mapping-emoji">${emojiDisplay(m)}</span>
                 <select class="rr-mapping-role-select">
                   ${roles.map(r => `<option value="${r.id}" ${r.id === m.role_id ? 'selected' : ''}>@${r.name}</option>`).join('')}
                 </select>
@@ -665,7 +715,8 @@
               </div>
             `).join('') || '<div class="empty-state">No emoji-role pairs yet.</div>'}
             <div class="rr-add-mapping">
-              <input type="text" placeholder="New emoji" class="rr-emoji-input" />
+              <input type="text" placeholder="New emoji, or pick one ->" class="rr-emoji-input" />
+              ${pickerHtml}
               <select class="rr-role-select">${roles.map(r => `<option value="${r.id}">@${r.name}</option>`).join('')}</select>
               <button type="button" class="rr-add-btn">Add</button>
             </div>
@@ -687,7 +738,37 @@
         const messageId = btn.closest('.rr-panel').dataset.messageId;
         if (state.expandedPanels.has(messageId)) state.expandedPanels.delete(messageId);
         else state.expandedPanels.add(messageId);
-        renderReactionRoles(state.rrData.panels, state.rrData.channels, state.rrData.roles);
+        renderReactionRoles(state.rrData.panels, state.rrData.channels, state.rrData.roles, state.rrData.emojis);
+      });
+    });
+
+    el.querySelectorAll('.rr-emoji-pick-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const popover = btn.nextElementSibling;
+        const isShowing = popover.style.display !== 'none';
+        el.querySelectorAll('.rr-emoji-popover').forEach(p => { p.style.display = 'none'; });
+        popover.style.display = isShowing ? 'none' : 'block';
+        if (!isShowing) popover.querySelector('.rr-emoji-search')?.focus();
+      });
+    });
+
+    el.querySelectorAll('.rr-emoji-search').forEach(input => {
+      input.addEventListener('input', () => {
+        const term = input.value.trim().toLowerCase();
+        input.closest('.rr-emoji-popover').querySelectorAll('.rr-emoji-pick-item').forEach(item => {
+          item.style.display = item.dataset.emojiName.includes(term) ? '' : 'none';
+        });
+      });
+      input.addEventListener('click', (e) => e.stopPropagation());
+    });
+
+    el.querySelectorAll('.rr-emoji-pick-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const popover = item.closest('.rr-emoji-popover');
+        const input = popover.closest('.rr-add-mapping').querySelector('.rr-emoji-input');
+        input.value = `<${item.dataset.emojiValue}>`;
+        popover.style.display = 'none';
       });
     });
 
@@ -777,7 +858,7 @@
         const panelEl = btn.closest('.rr-panel');
         const emoji = panelEl.querySelector('.rr-emoji-input').value.trim();
         const roleId = panelEl.querySelector('.rr-role-select').value;
-        if (!emoji) { toast('Enter an emoji first', 'err'); return; }
+        if (!emoji) { toast('Enter an emoji first, or pick one from the picker', 'err'); return; }
         try {
           await api(`/guilds/${state.guildId}/reactionroles/panels/${panelEl.dataset.messageId}/mappings`, {
             method: 'POST',
@@ -789,6 +870,11 @@
       });
     });
   }
+
+  // Close any open emoji picker popover when clicking elsewhere on the page.
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.rr-emoji-popover').forEach(p => { p.style.display = 'none'; });
+  });
 
   document.getElementById('rrCreateForm').addEventListener('submit', async (e) => {
     e.preventDefault();

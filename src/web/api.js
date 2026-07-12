@@ -45,6 +45,20 @@ function buildRouter(client) {
     res.json(roles);
   });
 
+  // ---- Guild's custom emoji, for the emoji picker in reaction roles ----
+  guildRouter.get('/emojis', (req, res) => {
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const emojis = guild.emojis.cache
+      .map(e => ({
+        id: e.id,
+        name: e.name,
+        animated: e.animated,
+        url: e.imageURL({ size: 32, extension: e.animated ? 'gif' : 'png' }),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json(emojis);
+  });
+
   // ---- Twitch subscriptions ----
   guildRouter.get('/twitch', (req, res) => {
     res.json(db.listTwitchSubsForGuild(req.params.guildId));
