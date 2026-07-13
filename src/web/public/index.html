@@ -293,6 +293,34 @@
   .rr-emoji-pick-item:hover { background: #262a36; }
   .rr-emoji-pick-item img { width: 24px; height: 24px; }
   .rr-emoji-popover-empty { font-size: 12px; color: var(--text-dim); padding: 6px 2px; }
+
+  .poll-choice-row { display: flex; gap: 6px; margin-bottom: 6px; }
+  .poll-choice-row input { flex: 1; min-width: 0; }
+  .poll-choice-row button {
+    flex-shrink: 0; width: auto; padding: 9px 12px;
+    background: transparent; border: 1px solid var(--panel-border); color: var(--err); font-size: 12px; border-radius: 8px; cursor: pointer;
+  }
+
+  .poll-item { background: #1c1f28; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .poll-item-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .poll-item-q { font-weight: 600; font-size: 13px; }
+  .poll-item-meta { font-size: 11px; color: var(--text-dim); margin-bottom: 10px; }
+
+  .poll-status-badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+  .poll-status-badge.open { background: #3ddc9733; color: var(--ok); }
+  .poll-status-badge.closed { background: #8a8d9a33; color: var(--text-dim); }
+
+  .poll-choice-bar-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; }
+  .poll-choice-bar-label { flex: 0 0 130px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .poll-choice-bar-track { flex: 1; height: 8px; background: #262935; border-radius: 4px; overflow: hidden; }
+  .poll-choice-bar-fill { height: 100%; background: #f2b705; }
+  .poll-choice-bar-count { flex: 0 0 30px; text-align: right; color: var(--text-dim); }
+
+  .poll-close-btn {
+    background: transparent; border: 1px solid var(--err); color: var(--err);
+    padding: 6px 12px; font-size: 12px; border-radius: 8px; cursor: pointer; margin-top: 8px;
+  }
+  .poll-close-btn:hover { background: #ff5c5c1a; }
 </style>
 </head>
 <body>
@@ -300,7 +328,7 @@
   <div id="loginScreen">
     <div class="on-air"><span class="dot"></span> WAITING FOR SIGNAL</div>
     <h1>VVC Skald Bot</h1>
-    <p>Manage Twitch/YouTube announcements, free game alerts, reaction roles, and welcome messages — no command line required.</p>
+    <p>Manage Twitch/YouTube announcements, free game alerts, reaction roles, welcome messages, and polls — no command line required.</p>
     <a class="btn-discord" href="/auth/discord/login">Continue with Discord</a>
     <div style="margin-top: 8px;">
       <a href="/tos" style="color: var(--text-dim); font-size: 12px; margin-right: 16px;">Terms of Service</a>
@@ -319,6 +347,7 @@
           <button class="nav-item" data-module="freegames" style="--nav-accent: #66c0f4;"><span class="swatch"></span>Free games</button>
           <button class="nav-item" data-module="welcome" style="--nav-accent: #3ddc97;"><span class="swatch"></span>Welcome</button>
           <button class="nav-item" data-module="reactionroles" style="--nav-accent: #9146ff;"><span class="swatch"></span>Reaction roles</button>
+          <button class="nav-item" data-module="polls" style="--nav-accent: #f2b705;"><span class="swatch"></span>Polls</button>
         </div>
         <div class="sidebar-footer">
           <a href="/tos" target="_blank">Terms</a>
@@ -415,6 +444,29 @@
               </form>
             </section>
           </section>
+
+          <section class="module-page" id="module-polls">
+            <section class="panel" style="--accent: #f2b705;">
+              <h2><span class="swatch"></span>Polls</h2>
+              <div id="pollsList"></div>
+
+              <form class="add-form" id="pollCreateForm">
+                <select id="pollChannel" required></select>
+                <input type="text" id="pollQuestion" maxlength="200" placeholder="Poll question" required />
+                <input type="number" id="pollDuration" min="0.1" step="0.1" placeholder="Duration in hours" required />
+                <div class="toggle-row">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="pollTalliesToggle" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span>Show live vote counts while open (otherwise hidden until it closes)</span>
+                </div>
+                <div id="pollChoicesList"></div>
+                <button type="button" class="btn-ghost" id="pollAddChoiceBtn" style="width:auto; align-self:flex-start;">+ Add choice</button>
+                <button type="submit">Post poll</button>
+              </form>
+            </section>
+          </section>
         </div>
       </div>
     </div>
@@ -472,7 +524,7 @@
 
   async function loadGuild(guildId) {
     state.guildId = guildId;
-    const [channels, roles, twitchSubs, youtubeSubs, freeGamesSubs, welcomeConfig, rrPanels, emojis] = await Promise.all([
+    const [channels, roles, twitchSubs, youtubeSubs, freeGamesSubs, welcomeConfig, rrPanels, emojis, polls] = await Promise.all([
       api(`/guilds/${guildId}/channels`),
       api(`/guilds/${guildId}/roles`),
       api(`/guilds/${guildId}/twitch`),
@@ -481,6 +533,7 @@
       api(`/guilds/${guildId}/welcome`),
       api(`/guilds/${guildId}/reactionroles/panels`),
       api(`/guilds/${guildId}/emojis`),
+      api(`/guilds/${guildId}/polls`),
     ]);
     state.channels = channels;
     state.roles = roles;
@@ -490,6 +543,7 @@
     document.getElementById('youtubeChannel').innerHTML = chanOpts;
     document.getElementById('welcomeChannel').innerHTML = chanOpts;
     document.getElementById('rrChannel').innerHTML = chanOpts;
+    document.getElementById('pollChannel').innerHTML = chanOpts;
 
     const roleOpts = '<option value="">No role ping</option>' + roles.map(r => `<option value="${r.id}">@${r.name}</option>`).join('');
     document.getElementById('twitchRole').innerHTML = roleOpts;
@@ -500,7 +554,122 @@
     renderFreeGames(freeGamesSubs, channels);
     renderWelcome(welcomeConfig, channels);
     renderReactionRoles(rrPanels, channels, roles, emojis);
+    renderPolls(polls, channels);
   }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+
+  function formatRelative(unixSeconds) {
+    const diffMs = unixSeconds * 1000 - Date.now();
+    const abs = Math.abs(diffMs);
+    const mins = Math.round(abs / 60000);
+    if (mins < 60) return diffMs > 0 ? `in ${mins}m` : `${mins}m ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 48) return diffMs > 0 ? `in ${hours}h` : `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    return diffMs > 0 ? `in ${days}d` : `${days}d ago`;
+  }
+
+  function renderPolls(polls, channels) {
+    const el = document.getElementById('pollsList');
+    if (!el) return;
+    if (polls.length === 0) { el.innerHTML = '<div class="empty-state">No polls yet.</div>'; return; }
+
+    el.innerHTML = polls.map(p => {
+      const total = p.counts.reduce((a, b) => a + b, 0);
+      const maxCount = Math.max(...p.counts, 1);
+      const isOpen = p.status === 'open';
+      const showBars = !!p.tallies_visible || !isOpen;
+
+      const bars = p.choices.map((c, i) => {
+        const count = p.counts[i] || 0;
+        const pct = showBars ? Math.round((count / maxCount) * 100) : 0;
+        return `
+          <div class="poll-choice-bar-row">
+            <div class="poll-choice-bar-label" title="${escapeHtml(c)}">${escapeHtml(c)}</div>
+            <div class="poll-choice-bar-track">${showBars ? `<div class="poll-choice-bar-fill" style="width:${pct}%"></div>` : ''}</div>
+            <div class="poll-choice-bar-count">${showBars ? count : '?'}</div>
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="poll-item">
+          <div class="poll-item-header">
+            <div class="poll-item-q">${escapeHtml(p.question)}</div>
+            <span class="poll-status-badge ${isOpen ? 'open' : 'closed'}">${isOpen ? 'Open' : 'Closed'}</span>
+          </div>
+          <div class="poll-item-meta">
+            #${channelName(channels, p.channel_id)} • ${isOpen ? `closes ${formatRelative(p.closes_at)}` : `closed ${formatRelative(p.closes_at)}`} • ${total} vote${total === 1 ? '' : 's'}${!showBars ? ' • tallies hidden until close' : ''}
+          </div>
+          ${bars}
+          ${isOpen ? `<button class="poll-close-btn" data-poll-id="${p.id}">Close now</button>` : ''}
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('.poll-close-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Close this poll now and post results?')) return;
+        try {
+          await api(`/guilds/${state.guildId}/polls/${btn.dataset.pollId}/close`, { method: 'POST' });
+          toast('Poll closed', 'ok');
+          const polls = await api(`/guilds/${state.guildId}/polls`);
+          renderPolls(polls, state.channels);
+        } catch (err) { toast(err.message, 'err'); }
+      });
+    });
+  }
+
+  function addPollChoiceRow(value) {
+    const list = document.getElementById('pollChoicesList');
+    if (list.children.length >= 10) { toast('Polls are capped at 10 choices', 'err'); return; }
+    const row = document.createElement('div');
+    row.className = 'poll-choice-row';
+    row.innerHTML = `<input type="text" class="poll-choice-input" maxlength="80" placeholder="Choice" value="${value ? escapeHtml(value) : ''}" required /><button type="button">✕</button>`;
+    row.querySelector('button').addEventListener('click', () => {
+      if (list.children.length <= 2) { toast('A poll needs at least 2 choices', 'err'); return; }
+      row.remove();
+    });
+    list.appendChild(row);
+  }
+
+  document.getElementById('pollAddChoiceBtn').addEventListener('click', () => addPollChoiceRow(''));
+  addPollChoiceRow('');
+  addPollChoiceRow('');
+
+  document.getElementById('pollCreateForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    try {
+      const choices = Array.from(document.querySelectorAll('.poll-choice-input')).map(i => i.value.trim()).filter(Boolean);
+      const body = {
+        channelId: document.getElementById('pollChannel').value,
+        question: document.getElementById('pollQuestion').value,
+        durationHours: document.getElementById('pollDuration').value,
+        talliesVisible: document.getElementById('pollTalliesToggle').checked,
+        choices,
+      };
+      await api(`/guilds/${state.guildId}/polls`, { method: 'POST', body: JSON.stringify(body) });
+      toast('Poll posted', 'ok');
+      e.target.reset();
+      document.getElementById('pollChoicesList').innerHTML = '';
+      addPollChoiceRow('');
+      addPollChoiceRow('');
+      const polls = await api(`/guilds/${state.guildId}/polls`);
+      renderPolls(polls, state.channels);
+    } catch (err) { toast(err.message, 'err'); }
+    btn.disabled = false;
+  });
+
+  setInterval(async () => {
+    if (!state.guildId) return;
+    try {
+      const polls = await api(`/guilds/${state.guildId}/polls`);
+      renderPolls(polls, state.channels);
+    } catch { /* silent — next tick will retry */ }
+  }, 15000);
 
   function channelName(channels, id) { return channels.find(c => c.id === id)?.name || id; }
   function roleName(roles, id) { return id ? (roles.find(r => r.id === id)?.name || id) : null; }

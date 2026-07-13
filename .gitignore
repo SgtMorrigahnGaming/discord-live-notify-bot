@@ -4,3 +4,4 @@ data/*.sqlite
 data/*.sqlite-*
 npm-debug.log*
 *.bak
+*.sh

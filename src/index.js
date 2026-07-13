@@ -10,6 +10,8 @@ const webServer = require('./web/server');
 const reactionRoleHandler = require('./services/reactionRoleHandler');
 const welcomeHandler = require('./services/welcomeHandler');
 const guildCleanupHandler = require('./services/guildCleanupHandler');
+const pollCloser = require('./services/pollCloser');
+const pollInteractions = require('./services/pollInteractions');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -37,17 +39,29 @@ client.once('clientReady', () => {
   reactionRoleHandler.register(client);
   welcomeHandler.register(client);
   guildCleanupHandler.register(client);
+  pollCloser.start(client);
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-  const command = client.commands.get(interaction.commandName);
-  if (!command) return;
-
   try {
-    await command.execute(interaction);
+    if (interaction.isChatInputCommand()) {
+      const command = client.commands.get(interaction.commandName);
+      if (!command) return;
+      await command.execute(interaction);
+      return;
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith('poll_')) {
+      await pollInteractions.handleButton(interaction);
+      return;
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('poll_')) {
+      await pollInteractions.handleModal(interaction);
+      return;
+    }
   } catch (err) {
-    logger.error(`Error executing /${interaction.commandName}:`, err);
+    logger.error('Error handling interaction:', err);
     const payload = { content: '❌ Something went wrong running that command.', ephemeral: true };
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(payload).catch(() => {});

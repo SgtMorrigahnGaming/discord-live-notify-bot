@@ -82,6 +82,41 @@ CREATE TABLE IF NOT EXISTS freegames_announced (
   announced_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   UNIQUE(source, external_id)
 );
+
+-- One in-progress poll builder session per admin at a time (cleared once posted)
+CREATE TABLE IF NOT EXISTS poll_drafts (
+  admin_id TEXT PRIMARY KEY,
+  guild_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  question TEXT,
+  duration_hours REAL NOT NULL,
+  tallies_visible INTEGER NOT NULL DEFAULT 0,
+  choices_json TEXT NOT NULL DEFAULT '[]',
+  updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE TABLE IF NOT EXISTS polls (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  message_id TEXT,
+  question TEXT NOT NULL,
+  choices_json TEXT NOT NULL,
+  tallies_visible INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL,
+  closes_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE TABLE IF NOT EXISTS poll_votes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  poll_id INTEGER NOT NULL,
+  user_id TEXT NOT NULL,
+  choice_index INTEGER NOT NULL,
+  voted_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  UNIQUE(poll_id, user_id)
+);
 `);
 
 module.exports = {
@@ -252,6 +287,96 @@ markFreeGameAnnounced(source, externalId) {
     db.prepare(`INSERT OR IGNORE INTO freegames_announced (source, external_id) VALUES (?, ?)`).run(source, externalId);
   },
 
+  // ---- Polls ----
+  savePollDraft(adminId, guildId, channelId, durationHours, talliesVisible) {
+    db.prepare(`
+      INSERT INTO poll_drafts (admin_id, guild_id, channel_id, duration_hours, tallies_visible, choices_json, question)
+      VALUES (@adminId, @guildId, @channelId, @durationHours, @talliesVisible, '[]', NULL)
+      ON CONFLICT(admin_id) DO UPDATE SET
+        guild_id = excluded.guild_id,
+        channel_id = excluded.channel_id,
+        duration_hours = excluded.duration_hours,
+        tallies_visible = excluded.tallies_visible,
+        choices_json = '[]',
+        question = NULL,
+        updated_at = strftime('%s','now')
+    `).run({ adminId, guildId, channelId, durationHours, talliesVisible: talliesVisible ? 1 : 0 });
+  },
+  getPollDraft(adminId) {
+    const row = db.prepare(`SELECT * FROM poll_drafts WHERE admin_id = ?`).get(adminId);
+    if (!row) return null;
+    return { ...row, choices: JSON.parse(row.choices_json) };
+  },
+  setPollDraftQuestionAndChoices(adminId, question, choices) {
+    db.prepare(`UPDATE poll_drafts SET question = ?, choices_json = ?, updated_at = strftime('%s','now') WHERE admin_id = ?`)
+      .run(question, JSON.stringify(choices), adminId);
+  },
+  addPollDraftChoice(adminId, choiceText) {
+    const draft = this.getPollDraft(adminId);
+    if (!draft) return null;
+    const choices = [...draft.choices, choiceText];
+    db.prepare(`UPDATE poll_drafts SET choices_json = ?, updated_at = strftime('%s','now') WHERE admin_id = ?`)
+      .run(JSON.stringify(choices), adminId);
+    return choices;
+  },
+  deletePollDraft(adminId) {
+    db.prepare(`DELETE FROM poll_drafts WHERE admin_id = ?`).run(adminId);
+  },
+  createPoll({ guildId, channelId, question, choices, talliesVisible, createdBy, closesAt }) {
+    const info = db.prepare(`
+      INSERT INTO polls (guild_id, channel_id, question, choices_json, tallies_visible, created_by, closes_at)
+      VALUES (@guildId, @channelId, @question, @choicesJson, @talliesVisible, @createdBy, @closesAt)
+    `).run({ guildId, channelId, question, choicesJson: JSON.stringify(choices), talliesVisible: talliesVisible ? 1 : 0, createdBy, closesAt });
+    return info.lastInsertRowid;
+  },
+  setPollMessage(pollId, messageId) {
+    db.prepare(`UPDATE polls SET message_id = ? WHERE id = ?`).run(messageId, pollId);
+  },
+  getPoll(pollId) {
+    const row = db.prepare(`SELECT * FROM polls WHERE id = ?`).get(pollId);
+    if (!row) return null;
+    return { ...row, choices: JSON.parse(row.choices_json) };
+  },
+  getPollByMessageId(messageId) {
+    const row = db.prepare(`SELECT * FROM polls WHERE message_id = ?`).get(messageId);
+    if (!row) return null;
+    return { ...row, choices: JSON.parse(row.choices_json) };
+  },
+  listOpenPollsPastClose(nowTs) {
+    return db.prepare(`SELECT id FROM polls WHERE status = 'open' AND closes_at <= ?`).all(nowTs).map(r => r.id);
+  },
+  listOpenPollsForGuild(guildId) {
+    const rows = db.prepare(`SELECT * FROM polls WHERE guild_id = ? AND status = 'open' ORDER BY closes_at`).all(guildId);
+    return rows.map(r => ({ ...r, choices: JSON.parse(r.choices_json) }));
+  },
+  closePoll(pollId) {
+    db.prepare(`UPDATE polls SET status = 'closed' WHERE id = ?`).run(pollId);
+  },
+  listPollsForGuild(guildId, limit = 50) {
+    const rows = db.prepare(`SELECT * FROM polls WHERE guild_id = ? ORDER BY created_at DESC LIMIT ?`).all(guildId, limit);
+    return rows.map(r => ({ ...r, choices: JSON.parse(r.choices_json) }));
+  },
+  deletePoll(pollId) {
+    // Used when a poll fails to post (e.g. permission error) so it doesn't linger as a phantom open poll
+    db.prepare(`DELETE FROM poll_votes WHERE poll_id = ?`).run(pollId);
+    db.prepare(`DELETE FROM polls WHERE id = ?`).run(pollId);
+  },
+  castVote(pollId, userId, choiceIndex) {
+    try {
+      db.prepare(`INSERT INTO poll_votes (poll_id, user_id, choice_index) VALUES (?, ?, ?)`).run(pollId, userId, choiceIndex);
+      return true;
+    } catch (err) {
+      if (err.code === 'SQLITE_CONSTRAINT_UNIQUE' || err.code === 'SQLITE_CONSTRAINT' || /UNIQUE/.test(err.message)) return false;
+      throw err;
+    }
+  },
+  getVoteCounts(pollId, numChoices) {
+    const rows = db.prepare(`SELECT choice_index, COUNT(*) as cnt FROM poll_votes WHERE poll_id = ? GROUP BY choice_index`).all(pollId);
+    const counts = new Array(numChoices).fill(0);
+    for (const r of rows) counts[r.choice_index] = r.cnt;
+    return counts;
+  },
+
   // ---- Full data purge (called when the bot is removed from a server) ----
   purgeGuildData(guildId) {
     const tx = db.transaction((id) => {
@@ -260,6 +385,9 @@ markFreeGameAnnounced(source, externalId) {
       db.prepare(`DELETE FROM reaction_roles WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM guild_welcome_config WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM freegames_subscriptions WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM poll_drafts WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM poll_votes WHERE poll_id IN (SELECT id FROM polls WHERE guild_id = ?)`).run(id);
+      db.prepare(`DELETE FROM polls WHERE guild_id = ?`).run(id);
     });
     tx(guildId);
     this.pruneOrphanTwitchState();
