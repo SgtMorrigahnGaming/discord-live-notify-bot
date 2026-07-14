@@ -12,6 +12,8 @@ const welcomeHandler = require('./services/welcomeHandler');
 const guildCleanupHandler = require('./services/guildCleanupHandler');
 const pollCloser = require('./services/pollCloser');
 const pollInteractions = require('./services/pollInteractions');
+const giveawayCloser = require('./services/giveawayCloser');
+const giveawayInteractions = require('./services/giveawayInteractions');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -40,6 +42,7 @@ client.once('clientReady', () => {
   welcomeHandler.register(client);
   guildCleanupHandler.register(client);
   pollCloser.start(client);
+  giveawayCloser.start(client);
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -58,6 +61,16 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith('poll_')) {
       await pollInteractions.handleModal(interaction);
+      return;
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith('giveaway_')) {
+      await giveawayInteractions.handleButton(interaction);
+      return;
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('giveaway_')) {
+      await giveawayInteractions.handleModal(interaction);
       return;
     }
   } catch (err) {

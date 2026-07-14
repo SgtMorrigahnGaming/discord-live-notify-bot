@@ -6,6 +6,8 @@ const youtubeClient = require('../services/youtubeClient');
 const emojiUtil = require('../utils/emoji');
 const { generateWelcomeCard } = require('../utils/welcomeCard');
 const { requireAuth, requireGuildAccess } = require('./authMiddleware');
+const pollInteractions = require('../services/pollInteractions');
+const pollCloser = require('../services/pollCloser');
 
 function buildRouter(client) {
   const router = express.Router();
@@ -310,6 +312,74 @@ function buildRouter(client) {
 
     const changes = db.removeReactionRole(req.params.messageId, emojiId, emojiName);
     if (changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
+  });
+
+  // ---- Polls ----
+  guildRouter.get('/polls', (req, res) => {
+    const polls = db.listPollsForGuild(req.params.guildId);
+    const withCounts = polls.map(p => ({
+      ...p,
+      counts: db.getVoteCounts(p.id, p.choices.length),
+    }));
+    res.json(withCounts);
+  });
+
+  guildRouter.post('/polls', async (req, res) => {
+    const { channelId, question, durationHours, talliesVisible, choices } = req.body;
+    if (!channelId || !question || !durationHours || !Array.isArray(choices)) {
+      return res.status(400).json({ error: 'channelId, question, durationHours, and choices are required' });
+    }
+
+    const trimmedQuestion = question.trim();
+    const trimmedChoices = choices.map(c => (c || '').trim()).filter(Boolean);
+    if (!trimmedQuestion) return res.status(400).json({ error: 'Question is required' });
+    if (trimmedChoices.length < 2) return res.status(400).json({ error: 'At least 2 choices are required' });
+    if (trimmedChoices.length > 10) return res.status(400).json({ error: 'Polls are capped at 10 choices' });
+
+    const hours = Number(durationHours);
+    if (!Number.isFinite(hours) || hours <= 0) {
+      return res.status(400).json({ error: 'durationHours must be a positive number' });
+    }
+
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    const closesAt = Math.floor(Date.now() / 1000) + Math.round(hours * 3600);
+    const pollId = db.createPoll({
+      guildId: req.params.guildId,
+      channelId,
+      question: trimmedQuestion,
+      choices: trimmedChoices,
+      talliesVisible: !!talliesVisible,
+      createdBy: req.session.user.id,
+      closesAt,
+    });
+
+    const embed = pollInteractions.buildOpenPollEmbed({
+      question: trimmedQuestion,
+      choices: trimmedChoices,
+      closesAt,
+      talliesVisible: !!talliesVisible,
+      counts: talliesVisible ? new Array(trimmedChoices.length).fill(0) : null,
+    });
+    const rows = pollInteractions.buildVoteButtonRows(pollId, trimmedChoices);
+
+    const message = await channel.send({ embeds: [embed], components: rows }).catch(() => null);
+    if (!message) {
+      db.deletePoll(pollId);
+      return res.status(502).json({ error: "Couldn't post in that channel — check my permissions there" });
+    }
+    db.setPollMessage(pollId, message.id);
+
+    res.json({ ok: true, pollId, messageId: message.id });
+  });
+
+  guildRouter.post('/polls/:pollId/close', async (req, res) => {
+    const poll = db.getPoll(req.params.pollId);
+    if (!poll || poll.guild_id !== req.params.guildId) return res.status(404).json({ error: 'Poll not found' });
+    if (poll.status === 'closed') return res.status(400).json({ error: 'That poll is already closed' });
+    await pollCloser.closePollNow(client, poll.id);
     res.json({ ok: true });
   });
 

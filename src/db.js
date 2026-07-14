@@ -117,6 +117,52 @@ CREATE TABLE IF NOT EXISTS poll_votes (
   voted_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   UNIQUE(poll_id, user_id)
 );
+
+-- One in-progress giveaway builder session per admin at a time (cleared once posted).
+-- Holds the slash-command options (channel/role/toggles) picked before the 5-field modal is shown.
+CREATE TABLE IF NOT EXISTS giveaway_drafts (
+  admin_id TEXT PRIMARY KEY,
+  guild_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  entry_role_id TEXT NOT NULL,
+  booster_bonus_enabled INTEGER NOT NULL DEFAULT 0,
+  auto_reroll_enabled INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE TABLE IF NOT EXISTS giveaways (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  message_id TEXT,
+  title TEXT NOT NULL,
+  prize TEXT NOT NULL,
+  description TEXT,
+  winner_count INTEGER NOT NULL DEFAULT 1,
+  entry_role_id TEXT NOT NULL,
+  booster_bonus_enabled INTEGER NOT NULL DEFAULT 0,
+  auto_reroll_enabled INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL,
+  ends_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),
+  entrant_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+-- Each row is one winner "slot". A reroll doesn't edit the row in place — it marks
+-- the old slot as replaced and inserts a fresh row with is_reroll=1, so a rerolled
+-- slot can never reroll again (single-reroll-per-slot, enforced structurally).
+CREATE TABLE IF NOT EXISTS giveaway_winners (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  giveaway_id INTEGER NOT NULL,
+  user_id TEXT NOT NULL,
+  is_reroll INTEGER NOT NULL DEFAULT 0,
+  replaced INTEGER NOT NULL DEFAULT 0,
+  claimed INTEGER NOT NULL DEFAULT 0,
+  unclaimed_final INTEGER NOT NULL DEFAULT 0,
+  claim_deadline INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
 `);
 
 module.exports = {
@@ -377,6 +423,115 @@ markFreeGameAnnounced(source, externalId) {
     return counts;
   },
 
+  // ---- Giveaways ----
+  saveGiveawayDraft(adminId, guildId, channelId, entryRoleId, boosterEnabled, autoRerollEnabled) {
+    db.prepare(`
+      INSERT INTO giveaway_drafts (admin_id, guild_id, channel_id, entry_role_id, booster_bonus_enabled, auto_reroll_enabled)
+      VALUES (@adminId, @guildId, @channelId, @entryRoleId, @boosterEnabled, @autoRerollEnabled)
+      ON CONFLICT(admin_id) DO UPDATE SET
+        guild_id = excluded.guild_id,
+        channel_id = excluded.channel_id,
+        entry_role_id = excluded.entry_role_id,
+        booster_bonus_enabled = excluded.booster_bonus_enabled,
+        auto_reroll_enabled = excluded.auto_reroll_enabled,
+        updated_at = strftime('%s','now')
+    `).run({
+      adminId, guildId, channelId, entryRoleId,
+      boosterEnabled: boosterEnabled ? 1 : 0,
+      autoRerollEnabled: autoRerollEnabled ? 1 : 0,
+    });
+  },
+  getGiveawayDraft(adminId) {
+    return db.prepare(`SELECT * FROM giveaway_drafts WHERE admin_id = ?`).get(adminId);
+  },
+  deleteGiveawayDraft(adminId) {
+    db.prepare(`DELETE FROM giveaway_drafts WHERE admin_id = ?`).run(adminId);
+  },
+  createGiveaway({ guildId, channelId, title, prize, description, winnerCount, entryRoleId, boosterEnabled, autoRerollEnabled, createdBy, endsAt }) {
+    const info = db.prepare(`
+      INSERT INTO giveaways (guild_id, channel_id, title, prize, description, winner_count, entry_role_id, booster_bonus_enabled, auto_reroll_enabled, created_by, ends_at)
+      VALUES (@guildId, @channelId, @title, @prize, @description, @winnerCount, @entryRoleId, @boosterEnabled, @autoRerollEnabled, @createdBy, @endsAt)
+    `).run({
+      guildId, channelId, title, prize, description: description || null, winnerCount, entryRoleId,
+      boosterEnabled: boosterEnabled ? 1 : 0,
+      autoRerollEnabled: autoRerollEnabled ? 1 : 0,
+      createdBy, endsAt,
+    });
+    return info.lastInsertRowid;
+  },
+  setGiveawayMessage(giveawayId, messageId) {
+    db.prepare(`UPDATE giveaways SET message_id = ? WHERE id = ?`).run(messageId, giveawayId);
+  },
+  setGiveawayEntrantCount(giveawayId, entrantCount) {
+    db.prepare(`UPDATE giveaways SET entrant_count = ? WHERE id = ?`).run(entrantCount, giveawayId);
+  },
+  getGiveaway(giveawayId) {
+    return db.prepare(`SELECT * FROM giveaways WHERE id = ?`).get(giveawayId);
+  },
+  getGiveawayByMessageId(messageId) {
+    return db.prepare(`SELECT * FROM giveaways WHERE message_id = ?`).get(messageId);
+  },
+  listOpenGiveawaysPastEnd(nowTs) {
+    return db.prepare(`SELECT id FROM giveaways WHERE status = 'open' AND ends_at <= ?`).all(nowTs).map(r => r.id);
+  },
+  listOpenGiveawaysForGuild(guildId) {
+    return db.prepare(`SELECT * FROM giveaways WHERE guild_id = ? AND status = 'open' ORDER BY ends_at`).all(guildId);
+  },
+  listGiveawaysForGuild(guildId, limit = 50) {
+    return db.prepare(`SELECT * FROM giveaways WHERE guild_id = ? ORDER BY created_at DESC LIMIT ?`).all(guildId, limit);
+  },
+  closeGiveaway(giveawayId) {
+    db.prepare(`UPDATE giveaways SET status = 'closed' WHERE id = ?`).run(giveawayId);
+  },
+  deleteGiveaway(giveawayId) {
+    // Used when a giveaway fails to post (e.g. permission error) so it doesn't linger as a phantom open giveaway
+    db.prepare(`DELETE FROM giveaway_winners WHERE giveaway_id = ?`).run(giveawayId);
+    db.prepare(`DELETE FROM giveaways WHERE id = ?`).run(giveawayId);
+  },
+  addGiveawayWinner(giveawayId, userId, claimDeadline, isReroll = false) {
+    const info = db.prepare(`
+      INSERT INTO giveaway_winners (giveaway_id, user_id, is_reroll, claim_deadline)
+      VALUES (@giveawayId, @userId, @isReroll, @claimDeadline)
+    `).run({ giveawayId, userId, isReroll: isReroll ? 1 : 0, claimDeadline });
+    return info.lastInsertRowid;
+  },
+  getGiveawayWinners(giveawayId) {
+    return db.prepare(`SELECT * FROM giveaway_winners WHERE giveaway_id = ? ORDER BY created_at`).all(giveawayId);
+  },
+  getGiveawayWinner(winnerId) {
+    return db.prepare(`SELECT * FROM giveaway_winners WHERE id = ?`).get(winnerId);
+  },
+  markGiveawayWinnerClaimed(winnerId) {
+    return db.prepare(`UPDATE giveaway_winners SET claimed = 1 WHERE id = ? AND claimed = 0 AND replaced = 0`).run(winnerId).changes;
+  },
+  markGiveawayWinnerReplaced(winnerId) {
+    db.prepare(`UPDATE giveaway_winners SET replaced = 1 WHERE id = ?`).run(winnerId);
+  },
+  markGiveawayWinnerUnclaimedFinal(winnerId) {
+    db.prepare(`UPDATE giveaway_winners SET unclaimed_final = 1 WHERE id = ?`).run(winnerId);
+  },
+  // Slots eligible for a single reroll: not yet claimed, not already replaced/finalized,
+  // deadline has passed, and this slot hasn't already been through a reroll itself.
+  listRerollableExpiredWinners(nowTs) {
+    return db.prepare(`
+      SELECT gw.* FROM giveaway_winners gw
+      JOIN giveaways g ON g.id = gw.giveaway_id
+      WHERE gw.claimed = 0 AND gw.replaced = 0 AND gw.unclaimed_final = 0 AND gw.is_reroll = 0
+        AND gw.claim_deadline <= ? AND g.status = 'closed' AND g.auto_reroll_enabled = 1
+    `).all(nowTs);
+  },
+  // Slots past deadline that can no longer be rerolled (either already a reroll, or auto-reroll is off) —
+  // these just get flagged unclaimed for the record.
+  listFinalizableExpiredWinners(nowTs) {
+    return db.prepare(`
+      SELECT gw.* FROM giveaway_winners gw
+      JOIN giveaways g ON g.id = gw.giveaway_id
+      WHERE gw.claimed = 0 AND gw.replaced = 0 AND gw.unclaimed_final = 0
+        AND gw.claim_deadline <= ? AND g.status = 'closed'
+        AND (gw.is_reroll = 1 OR g.auto_reroll_enabled = 0)
+    `).all(nowTs);
+  },
+
   // ---- Full data purge (called when the bot is removed from a server) ----
   purgeGuildData(guildId) {
     const tx = db.transaction((id) => {
@@ -388,6 +543,9 @@ markFreeGameAnnounced(source, externalId) {
       db.prepare(`DELETE FROM poll_drafts WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM poll_votes WHERE poll_id IN (SELECT id FROM polls WHERE guild_id = ?)`).run(id);
       db.prepare(`DELETE FROM polls WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM giveaway_drafts WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM giveaway_winners WHERE giveaway_id IN (SELECT id FROM giveaways WHERE guild_id = ?)`).run(id);
+      db.prepare(`DELETE FROM giveaways WHERE guild_id = ?`).run(id);
     });
     tx(guildId);
     this.pruneOrphanTwitchState();

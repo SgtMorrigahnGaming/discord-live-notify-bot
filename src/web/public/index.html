@@ -321,6 +321,30 @@
     padding: 6px 12px; font-size: 12px; border-radius: 8px; cursor: pointer; margin-top: 8px;
   }
   .poll-close-btn:hover { background: #ff5c5c1a; }
+
+  .giveaway-item { background: #1c1f28; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .giveaway-item-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .giveaway-item-title { font-weight: 600; font-size: 13px; }
+  .giveaway-item-meta { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; }
+  .giveaway-item-tags { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; }
+  .giveaway-item-tags span { background: #262935; border-radius: 999px; padding: 2px 8px; margin-right: 6px; display: inline-block; margin-bottom: 4px; }
+
+  .giveaway-status-badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+  .giveaway-status-badge.open { background: #3ddc9733; color: var(--ok); }
+  .giveaway-status-badge.closed { background: #8a8d9a33; color: var(--text-dim); }
+
+  .giveaway-winner-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 3px 0; color: var(--text-dim); }
+  .giveaway-winner-claim { font-size: 10px; padding: 1px 7px; border-radius: 999px; }
+  .giveaway-winner-claim.claimed { background: #3ddc9733; color: var(--ok); }
+  .giveaway-winner-claim.pending { background: #f2b70533; color: #f2b705; }
+  .giveaway-winner-claim.unclaimed { background: #ff5c5c33; color: var(--err); }
+  .giveaway-winner-claim.rerolled { background: #8a8d9a33; color: var(--text-dim); }
+
+  .giveaway-close-btn {
+    background: transparent; border: 1px solid var(--err); color: var(--err);
+    padding: 6px 12px; font-size: 12px; border-radius: 8px; cursor: pointer; margin-top: 8px;
+  }
+  .giveaway-close-btn:hover { background: #ff5c5c1a; }
 </style>
 </head>
 <body>
@@ -342,12 +366,13 @@
         <div class="sidebar-brand"><span class="dot"></span><span class="display">VVC Skald Bot</span></div>
         <select id="guildSelect"></select>
         <div class="nav-items">
-          <button class="nav-item active" data-module="twitch" style="--nav-accent: #9146ff;"><span class="swatch"></span>Twitch</button>
+          <button class="nav-item active" data-module="welcome" style="--nav-accent: #3ddc97;"><span class="swatch"></span>Welcome</button>
+          <button class="nav-item" data-module="twitch" style="--nav-accent: #9146ff;"><span class="swatch"></span>Twitch</button>
           <button class="nav-item" data-module="youtube" style="--nav-accent: #ff3b3b;"><span class="swatch"></span>YouTube</button>
-          <button class="nav-item" data-module="freegames" style="--nav-accent: #66c0f4;"><span class="swatch"></span>Free games</button>
-          <button class="nav-item" data-module="welcome" style="--nav-accent: #3ddc97;"><span class="swatch"></span>Welcome</button>
-          <button class="nav-item" data-module="reactionroles" style="--nav-accent: #9146ff;"><span class="swatch"></span>Reaction roles</button>
           <button class="nav-item" data-module="polls" style="--nav-accent: #f2b705;"><span class="swatch"></span>Polls</button>
+          <button class="nav-item" data-module="giveaway" style="--nav-accent: #ff9f43;"><span class="swatch"></span>Giveaway</button>
+          <button class="nav-item" data-module="reactionroles" style="--nav-accent: #9146ff;"><span class="swatch"></span>Reaction roles</button>
+          <button class="nav-item" data-module="freegames" style="--nav-accent: #66c0f4;"><span class="swatch"></span>Free games</button>
         </div>
         <div class="sidebar-footer">
           <a href="/tos" target="_blank">Terms</a>
@@ -376,7 +401,7 @@
         </header>
 
         <div class="content">
-          <section class="module-page active" id="module-twitch">
+          <section class="module-page" id="module-twitch">
             <section class="panel twitch">
               <h2><span class="swatch"></span>Twitch streamers</h2>
               <div id="twitchList"></div>
@@ -411,7 +436,7 @@
             </section>
           </section>
 
-          <section class="module-page" id="module-welcome">
+          <section class="module-page active" id="module-welcome">
             <section class="panel" style="--accent: #3ddc97;">
               <h2><span class="swatch"></span>Welcome new members</h2>
               <form class="add-form" id="welcomeForm">
@@ -464,6 +489,38 @@
                 <div id="pollChoicesList"></div>
                 <button type="button" class="btn-ghost" id="pollAddChoiceBtn" style="width:auto; align-self:flex-start;">+ Add choice</button>
                 <button type="submit">Post poll</button>
+              </form>
+            </section>
+          </section>
+
+          <section class="module-page" id="module-giveaway">
+            <section class="panel" style="--accent: #ff9f43;">
+              <h2><span class="swatch"></span>Giveaways</h2>
+              <div id="giveawayList"></div>
+
+              <form class="add-form" id="giveawayCreateForm">
+                <select id="giveawayChannel" required></select>
+                <select id="giveawayEntryRole" required></select>
+                <input type="text" id="giveawayTitle" maxlength="100" placeholder="Title" required />
+                <input type="text" id="giveawayPrize" maxlength="200" placeholder="Prize" required />
+                <input type="number" id="giveawayDuration" min="0.1" step="0.1" placeholder="Duration in hours" required />
+                <textarea id="giveawayDescription" maxlength="1000" placeholder="Description (optional)"></textarea>
+                <input type="number" id="giveawayWinnerCount" min="1" step="1" value="1" placeholder="Number of winners" required />
+                <div class="toggle-row">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="giveawayBoosterToggle" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span>Server boosters get 2x entries</span>
+                </div>
+                <div class="toggle-row">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="giveawayAutoRerollToggle" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span>Auto-reroll once if a winner doesn't claim within 24h</span>
+                </div>
+                <button type="submit">Launch giveaway</button>
               </form>
             </section>
           </section>
@@ -524,7 +581,7 @@
 
   async function loadGuild(guildId) {
     state.guildId = guildId;
-    const [channels, roles, twitchSubs, youtubeSubs, freeGamesSubs, welcomeConfig, rrPanels, emojis, polls] = await Promise.all([
+    const [channels, roles, twitchSubs, youtubeSubs, freeGamesSubs, welcomeConfig, rrPanels, emojis, polls, giveaways] = await Promise.all([
       api(`/guilds/${guildId}/channels`),
       api(`/guilds/${guildId}/roles`),
       api(`/guilds/${guildId}/twitch`),
@@ -534,6 +591,7 @@
       api(`/guilds/${guildId}/reactionroles/panels`),
       api(`/guilds/${guildId}/emojis`),
       api(`/guilds/${guildId}/polls`),
+      api(`/guilds/${guildId}/giveaways`),
     ]);
     state.channels = channels;
     state.roles = roles;
@@ -544,10 +602,12 @@
     document.getElementById('welcomeChannel').innerHTML = chanOpts;
     document.getElementById('rrChannel').innerHTML = chanOpts;
     document.getElementById('pollChannel').innerHTML = chanOpts;
+    document.getElementById('giveawayChannel').innerHTML = chanOpts;
 
     const roleOpts = '<option value="">No role ping</option>' + roles.map(r => `<option value="${r.id}">@${r.name}</option>`).join('');
     document.getElementById('twitchRole').innerHTML = roleOpts;
     document.getElementById('youtubeRole').innerHTML = roleOpts;
+    document.getElementById('giveawayEntryRole').innerHTML = roles.map(r => `<option value="${r.id}">@${r.name}</option>`).join('');
 
     renderTwitchList(twitchSubs, channels, roles);
     renderYoutubeList(youtubeSubs, channels, roles);
@@ -555,6 +615,7 @@
     renderWelcome(welcomeConfig, channels);
     renderReactionRoles(rrPanels, channels, roles, emojis);
     renderPolls(polls, channels);
+    renderGiveaways(giveaways, channels, roles);
   }
 
   function escapeHtml(str) {
@@ -668,6 +729,94 @@
     try {
       const polls = await api(`/guilds/${state.guildId}/polls`);
       renderPolls(polls, state.channels);
+    } catch { /* silent — next tick will retry */ }
+  }, 15000);
+
+  function claimBadge(w, nowSec) {
+    if (w.replaced) return '<span class="giveaway-winner-claim rerolled">rerolled</span>';
+    if (w.claimed) return '<span class="giveaway-winner-claim claimed">claimed</span>';
+    if (w.unclaimed_final || w.claim_deadline <= nowSec) return '<span class="giveaway-winner-claim unclaimed">unclaimed</span>';
+    return '<span class="giveaway-winner-claim pending">awaiting claim</span>';
+  }
+
+  function renderGiveaways(giveaways, channels, roles) {
+    const el = document.getElementById('giveawayList');
+    if (!el) return;
+    if (giveaways.length === 0) { el.innerHTML = '<div class="empty-state">No giveaways yet.</div>'; return; }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    el.innerHTML = giveaways.map(g => {
+      const isOpen = g.status === 'open';
+      const winnerRows = (g.winners || []).map(w => `
+        <div class="giveaway-winner-row">
+          <span>🏆 ${w.user_id}${w.is_reroll ? ' (reroll)' : ''}</span>
+          ${claimBadge(w, nowSec)}
+        </div>`).join('');
+
+      return `
+        <div class="giveaway-item">
+          <div class="giveaway-item-header">
+            <div class="giveaway-item-title">${escapeHtml(g.title)}</div>
+            <span class="giveaway-status-badge ${isOpen ? 'open' : 'closed'}">${isOpen ? 'Open' : 'Closed'}</span>
+          </div>
+          <div class="giveaway-item-meta">
+            🎁 ${escapeHtml(g.prize)} • #${channelName(channels, g.channel_id)} • ${isOpen ? `ends ${formatRelative(g.ends_at)}` : `ended ${formatRelative(g.ends_at)}`} • ${g.entrant_count} entrant${g.entrant_count === 1 ? '' : 's'} • ${g.winner_count} winner${g.winner_count === 1 ? '' : 's'}
+          </div>
+          <div class="giveaway-item-tags">
+            <span>Entry: @${roleName(roles, g.entry_role_id) || g.entry_role_id}</span>
+            ${g.booster_bonus_enabled ? '<span>🚀 2x boosters</span>' : ''}
+            ${g.auto_reroll_enabled ? '<span>🔁 auto-reroll</span>' : ''}
+          </div>
+          ${winnerRows}
+          ${isOpen ? `<button class="giveaway-close-btn" data-giveaway-id="${g.id}">End now</button>` : ''}
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('.giveaway-close-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('End this giveaway now and pick winners?')) return;
+        try {
+          await api(`/guilds/${state.guildId}/giveaways/${btn.dataset.giveawayId}/close`, { method: 'POST' });
+          toast('Giveaway closed', 'ok');
+          const giveaways = await api(`/guilds/${state.guildId}/giveaways`);
+          renderGiveaways(giveaways, state.channels, state.roles);
+        } catch (err) { toast(err.message, 'err'); }
+      });
+    });
+  }
+
+  document.getElementById('giveawayCreateForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    try {
+      const body = {
+        channelId: document.getElementById('giveawayChannel').value,
+        entryRoleId: document.getElementById('giveawayEntryRole').value,
+        boosterEnabled: document.getElementById('giveawayBoosterToggle').checked,
+        autoRerollEnabled: document.getElementById('giveawayAutoRerollToggle').checked,
+        title: document.getElementById('giveawayTitle').value,
+        prize: document.getElementById('giveawayPrize').value,
+        description: document.getElementById('giveawayDescription').value,
+        durationHours: document.getElementById('giveawayDuration').value,
+        winnerCount: document.getElementById('giveawayWinnerCount').value,
+      };
+      await api(`/guilds/${state.guildId}/giveaways`, { method: 'POST', body: JSON.stringify(body) });
+      toast('Giveaway launched', 'ok');
+      e.target.reset();
+      document.getElementById('giveawayWinnerCount').value = 1;
+      const giveaways = await api(`/guilds/${state.guildId}/giveaways`);
+      renderGiveaways(giveaways, state.channels, state.roles);
+    } catch (err) { toast(err.message, 'err'); }
+    btn.disabled = false;
+  });
+
+  setInterval(async () => {
+    if (!state.guildId) return;
+    try {
+      const giveaways = await api(`/guilds/${state.guildId}/giveaways`);
+      renderGiveaways(giveaways, state.channels, state.roles);
     } catch { /* silent — next tick will retry */ }
   }, 15000);
 

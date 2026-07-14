@@ -352,6 +352,15 @@ markFreeGameAnnounced(source, externalId) {
   closePoll(pollId) {
     db.prepare(`UPDATE polls SET status = 'closed' WHERE id = ?`).run(pollId);
   },
+  listPollsForGuild(guildId, limit = 50) {
+    const rows = db.prepare(`SELECT * FROM polls WHERE guild_id = ? ORDER BY created_at DESC LIMIT ?`).all(guildId, limit);
+    return rows.map(r => ({ ...r, choices: JSON.parse(r.choices_json) }));
+  },
+  deletePoll(pollId) {
+    // Used when a poll fails to post (e.g. permission error) so it doesn't linger as a phantom open poll
+    db.prepare(`DELETE FROM poll_votes WHERE poll_id = ?`).run(pollId);
+    db.prepare(`DELETE FROM polls WHERE id = ?`).run(pollId);
+  },
   castVote(pollId, userId, choiceIndex) {
     try {
       db.prepare(`INSERT INTO poll_votes (poll_id, user_id, choice_index) VALUES (?, ?, ?)`).run(pollId, userId, choiceIndex);
