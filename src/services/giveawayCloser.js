@@ -1,7 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 const db = require('../db');
 const logger = require('../utils/logger');
-const { buildEntrantPool, pickWinners, buildClosedGiveawayEmbed, CLAIM_WINDOW_MS } = require('../utils/giveawayFormat');
+const { pickWinners, buildClosedGiveawayEmbed, buildTicketPool, CLAIM_WINDOW_MS } = require('../utils/giveawayFormat');
 
 let running = false;
 
@@ -42,8 +42,9 @@ async function closeGiveawayNow(client, giveawayId) {
   let winnerIds = [];
   try {
     const guild = await client.guilds.fetch(giveaway.guild_id);
-    const tickets = await buildEntrantPool(guild, giveaway.entry_role_id, !!giveaway.booster_bonus_enabled);
-    entrantCount = new Set(tickets).size;
+    const entrantUserIds = db.listGiveawayEntrantIds(giveawayId);
+    entrantCount = entrantUserIds.length;
+    const tickets = await buildTicketPool(guild, entrantUserIds, !!giveaway.booster_bonus_enabled);
     winnerIds = pickWinners(tickets, giveaway.winner_count);
     db.setGiveawayEntrantCount(giveawayId, entrantCount);
   } catch (err) {
@@ -72,9 +73,9 @@ async function closeGiveawayNow(client, giveawayId) {
     }
 
     if (winnerRows.length === 0) {
-      await channel.send({ content: `🎉 **${giveaway.title}** has ended — no eligible entrants, so no winner was picked.` });
+      await channel.send({ content: `🎉 **${giveaway.title}** has ended — nobody entered, so no winner was picked.` });
     } else {
-      const rows = winnerRows.map(buildClaimButtonRow);
+      const rows = winnerRows.map(w => buildClaimButtonRow(w.id));
       await channel.send({
         content: `🎉 **${giveaway.title}** has ended!\nWinner${winnerRows.length === 1 ? '' : 's'}: ${winnerRows.map(w => `<@${w.user_id}>`).join(', ')}\nCheck your DMs, then hit **Claim Prize** below within 24h.`,
         components: rows.slice(0, 5),
@@ -97,7 +98,8 @@ async function rerollWinner(client, oldWinner) {
 
   try {
     const guild = await client.guilds.fetch(giveaway.guild_id);
-    const tickets = await buildEntrantPool(guild, giveaway.entry_role_id, !!giveaway.booster_bonus_enabled);
+    const entrantUserIds = db.listGiveawayEntrantIds(giveaway.id);
+    const tickets = await buildTicketPool(guild, entrantUserIds, !!giveaway.booster_bonus_enabled);
     const existingWinnerIds = db.getGiveawayWinners(giveaway.id).map(w => w.user_id);
     const [newWinnerId] = pickWinners(tickets, 1, existingWinnerIds);
 

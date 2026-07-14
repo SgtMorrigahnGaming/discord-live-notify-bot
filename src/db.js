@@ -163,6 +163,16 @@ CREATE TABLE IF NOT EXISTS giveaway_winners (
   claim_deadline INTEGER NOT NULL,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
+
+-- Who clicked "Enter Giveaway". Entry is opt-in and requires holding the giveaway's entry_role_id
+-- at click time (checked in the button handler, not enforced here).
+CREATE TABLE IF NOT EXISTS giveaway_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  giveaway_id INTEGER NOT NULL,
+  user_id TEXT NOT NULL,
+  entered_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  UNIQUE(giveaway_id, user_id)
+);
 `);
 
 module.exports = {
@@ -465,6 +475,24 @@ markFreeGameAnnounced(source, externalId) {
   setGiveawayEntrantCount(giveawayId, entrantCount) {
     db.prepare(`UPDATE giveaways SET entrant_count = ? WHERE id = ?`).run(entrantCount, giveawayId);
   },
+  // Opt-in entry (click "Enter Giveaway"). Returns true if this click added a new entry,
+  // false if the user wasn't entered (e.g. they'd already left, nothing to add here).
+  addGiveawayEntry(giveawayId, userId) {
+    const info = db.prepare(`INSERT OR IGNORE INTO giveaway_entries (giveaway_id, user_id) VALUES (?, ?)`).run(giveawayId, userId);
+    return info.changes > 0;
+  },
+  removeGiveawayEntry(giveawayId, userId) {
+    return db.prepare(`DELETE FROM giveaway_entries WHERE giveaway_id = ? AND user_id = ?`).run(giveawayId, userId).changes > 0;
+  },
+  hasGiveawayEntry(giveawayId, userId) {
+    return !!db.prepare(`SELECT 1 FROM giveaway_entries WHERE giveaway_id = ? AND user_id = ?`).get(giveawayId, userId);
+  },
+  getGiveawayEntryCount(giveawayId) {
+    return db.prepare(`SELECT COUNT(*) AS cnt FROM giveaway_entries WHERE giveaway_id = ?`).get(giveawayId).cnt;
+  },
+  listGiveawayEntrantIds(giveawayId) {
+    return db.prepare(`SELECT user_id FROM giveaway_entries WHERE giveaway_id = ?`).all(giveawayId).map(r => r.user_id);
+  },
   getGiveaway(giveawayId) {
     return db.prepare(`SELECT * FROM giveaways WHERE id = ?`).get(giveawayId);
   },
@@ -486,6 +514,7 @@ markFreeGameAnnounced(source, externalId) {
   deleteGiveaway(giveawayId) {
     // Used when a giveaway fails to post (e.g. permission error) so it doesn't linger as a phantom open giveaway
     db.prepare(`DELETE FROM giveaway_winners WHERE giveaway_id = ?`).run(giveawayId);
+    db.prepare(`DELETE FROM giveaway_entries WHERE giveaway_id = ?`).run(giveawayId);
     db.prepare(`DELETE FROM giveaways WHERE id = ?`).run(giveawayId);
   },
   addGiveawayWinner(giveawayId, userId, claimDeadline, isReroll = false) {
@@ -545,6 +574,7 @@ markFreeGameAnnounced(source, externalId) {
       db.prepare(`DELETE FROM polls WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM giveaway_drafts WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM giveaway_winners WHERE giveaway_id IN (SELECT id FROM giveaways WHERE guild_id = ?)`).run(id);
+      db.prepare(`DELETE FROM giveaway_entries WHERE giveaway_id IN (SELECT id FROM giveaways WHERE guild_id = ?)`).run(id);
       db.prepare(`DELETE FROM giveaways WHERE guild_id = ?`).run(id);
     });
     tx(guildId);

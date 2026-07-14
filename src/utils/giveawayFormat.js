@@ -1,21 +1,20 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const BOOSTER_MULTIPLIER = 2;
 const CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-// Fetches full member list and returns a weighted ticket pool: one entry per member holding
-// the entry role, duplicated for boosters when the booster bonus is enabled. Entry is fully
-// automatic — no reaction/click is involved in building this pool.
-async function buildEntrantPool(guild, entryRoleId, boosterEnabled) {
-  await guild.members.fetch().catch(() => {});
-  const role = guild.roles.cache.get(entryRoleId);
-  if (!role) return [];
-
+// Turns a list of entrant user IDs into a weighted ticket pool: one ticket per entrant,
+// duplicated for boosters when the booster bonus is enabled. userIds should already be
+// the people who clicked "Enter Giveaway" — this function only handles weighting.
+async function buildTicketPool(guild, userIds, boosterEnabled) {
   const tickets = [];
-  for (const member of role.members.values()) {
-    if (member.user.bot) continue;
-    const weight = boosterEnabled && member.premiumSince ? BOOSTER_MULTIPLIER : 1;
-    for (let i = 0; i < weight; i++) tickets.push(member.id);
+  for (const userId of userIds) {
+    let weight = 1;
+    if (boosterEnabled) {
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (member && member.premiumSince) weight = BOOSTER_MULTIPLIER;
+    }
+    for (let i = 0; i < weight; i++) tickets.push(userId);
   }
   return tickets;
 }
@@ -36,6 +35,15 @@ function pickWinners(tickets, count, excludeIds = []) {
   return winners;
 }
 
+function buildEnterButtonRow(giveawayId, entered) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`giveaway_enter:${giveawayId}`)
+      .setLabel(entered ? '🎉 Entered — click to leave' : '🎉 Enter Giveaway')
+      .setStyle(entered ? ButtonStyle.Secondary : ButtonStyle.Success)
+  );
+}
+
 function buildOpenGiveawayEmbed({ title, prize, description, winnerCount, entryRoleId, boosterEnabled, endsAt, entrantCount }) {
   const embed = new EmbedBuilder()
     .setColor(0xf2b705)
@@ -43,7 +51,7 @@ function buildOpenGiveawayEmbed({ title, prize, description, winnerCount, entryR
     .setDescription(
       `**Prize:** ${prize}\n` +
       (description ? `${description}\n\n` : '\n') +
-      `Anyone holding <@&${entryRoleId}> is automatically entered — no action needed.` +
+      `Click **Enter Giveaway** below to join — you need <@&${entryRoleId}> to be eligible.` +
       (boosterEnabled ? `\n🚀 Server boosters get **${BOOSTER_MULTIPLIER}x** entries.` : '')
     )
     .addFields(
@@ -57,7 +65,7 @@ function buildOpenGiveawayEmbed({ title, prize, description, winnerCount, entryR
 
 function buildClosedGiveawayEmbed({ title, prize, description, winners, entrantCount }) {
   const winnerLine = winners.length === 0
-    ? '_No eligible entrants — no winners were picked._'
+    ? '_No entrants — no winners were picked._'
     : winners.map(w => `🏆 <@${w.user_id}>${w.replaced ? ' _(rerolled — did not claim in time)_' : w.claimed ? ' ✅ claimed' : w.unclaimed_final ? ' ⚠️ unclaimed' : ' ⏳ awaiting claim'}`).join('\n');
 
   return new EmbedBuilder()
@@ -75,8 +83,9 @@ function buildClosedGiveawayEmbed({ title, prize, description, winners, entrantC
 module.exports = {
   BOOSTER_MULTIPLIER,
   CLAIM_WINDOW_MS,
-  buildEntrantPool,
+  buildTicketPool,
   pickWinners,
+  buildEnterButtonRow,
   buildOpenGiveawayEmbed,
   buildClosedGiveawayEmbed,
 };

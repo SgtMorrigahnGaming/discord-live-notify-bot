@@ -1,7 +1,7 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db = require('../db');
 const logger = require('../utils/logger');
-const { buildEntrantPool, buildOpenGiveawayEmbed } = require('../utils/giveawayFormat');
+const { buildOpenGiveawayEmbed, buildEnterButtonRow } = require('../utils/giveawayFormat');
 
 async function handleModal(interaction) {
   if (interaction.customId !== 'giveaway_create_modal') return;
@@ -47,14 +47,6 @@ async function handleModal(interaction) {
 
   const endsAt = Math.floor(Date.now() / 1000) + Math.round(durationHours * 3600);
 
-  let entrantCount = 0;
-  try {
-    const tickets = await buildEntrantPool(guild, draft.entry_role_id, !!draft.booster_bonus_enabled);
-    entrantCount = new Set(tickets).size;
-  } catch (err) {
-    logger.error('Giveaway: failed to preview entrant count:', err);
-  }
-
   const giveawayId = db.createGiveaway({
     guildId: draft.guild_id,
     channelId: draft.channel_id,
@@ -77,12 +69,12 @@ async function handleModal(interaction) {
     entryRoleId: draft.entry_role_id,
     boosterEnabled: !!draft.booster_bonus_enabled,
     endsAt,
-    entrantCount,
+    entrantCount: 0,
   });
 
   let message;
   try {
-    message = await channel.send({ embeds: [embed] });
+    message = await channel.send({ embeds: [embed], components: [buildEnterButtonRow(giveawayId, false)] });
   } catch (err) {
     logger.error('Failed to post giveaway:', err);
     db.deleteGiveaway(giveawayId);
@@ -90,10 +82,9 @@ async function handleModal(interaction) {
   }
 
   db.setGiveawayMessage(giveawayId, message.id);
-  db.setGiveawayEntrantCount(giveawayId, entrantCount);
   db.deleteGiveawayDraft(interaction.user.id);
 
-  return interaction.reply({ content: `✅ Giveaway posted in <#${draft.channel_id}>, ends <t:${endsAt}:R>. Anyone with <@&${draft.entry_role_id}> is entered automatically.`, ephemeral: true });
+  return interaction.reply({ content: `✅ Giveaway posted in <#${draft.channel_id}>, ends <t:${endsAt}:R>. Members with <@&${draft.entry_role_id}> can click **Enter Giveaway** to join.`, ephemeral: true });
 }
 
 async function handleClaim(interaction) {
@@ -145,9 +136,56 @@ async function handleClaim(interaction) {
   }
 }
 
+async function handleEnter(interaction) {
+  const giveawayId = Number(interaction.customId.split(':')[1]);
+  const giveaway = db.getGiveaway(giveawayId);
+
+  if (!giveaway) {
+    return interaction.reply({ content: "❌ Couldn't find that giveaway.", ephemeral: true });
+  }
+  if (giveaway.status !== 'open') {
+    return interaction.reply({ content: '⚠️ This giveaway is no longer open.', ephemeral: true });
+  }
+
+  const member = interaction.member;
+  if (!member || !member.roles.cache.has(giveaway.entry_role_id)) {
+    return interaction.reply({ content: `❌ You need <@&${giveaway.entry_role_id}> to enter this giveaway.`, ephemeral: true });
+  }
+
+  const alreadyEntered = db.hasGiveawayEntry(giveawayId, interaction.user.id);
+  if (alreadyEntered) {
+    db.removeGiveawayEntry(giveawayId, interaction.user.id);
+    await interaction.reply({ content: '👋 You left the giveaway.', ephemeral: true });
+  } else {
+    db.addGiveawayEntry(giveawayId, interaction.user.id);
+    await interaction.reply({ content: "🎉 You're entered! Good luck.", ephemeral: true });
+  }
+
+  const entrantCount = db.getGiveawayEntryCount(giveawayId);
+
+  try {
+    const embed = buildOpenGiveawayEmbed({
+      title: giveaway.title,
+      prize: giveaway.prize,
+      description: giveaway.description,
+      winnerCount: giveaway.winner_count,
+      entryRoleId: giveaway.entry_role_id,
+      boosterEnabled: !!giveaway.booster_bonus_enabled,
+      endsAt: giveaway.ends_at,
+      entrantCount,
+    });
+    await interaction.message.edit({ embeds: [embed] }).catch(() => {});
+  } catch (err) {
+    logger.error('Giveaway: failed to refresh entrant count on message:', err);
+  }
+}
+
 async function handleButton(interaction) {
   if (interaction.customId.startsWith('giveaway_claim:')) {
     return handleClaim(interaction);
+  }
+  if (interaction.customId.startsWith('giveaway_enter:')) {
+    return handleEnter(interaction);
   }
 }
 

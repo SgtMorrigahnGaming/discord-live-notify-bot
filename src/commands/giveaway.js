@@ -3,18 +3,18 @@ const {
   ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder,
 } = require('discord.js');
 const db = require('../db');
-const { buildClosedGiveawayEmbed, buildEntrantPool } = require('../utils/giveawayFormat');
+const { buildClosedGiveawayEmbed } = require('../utils/giveawayFormat');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('giveaway')
-    .setDescription('Create and manage automatic-entry giveaways')
+    .setDescription('Create and manage click-to-enter giveaways')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(sub => sub
       .setName('create')
       .setDescription('Start building a new giveaway (opens a form for title, prize, duration, description, winners)')
       .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post the giveaway in').addChannelTypes(ChannelType.GuildText).setRequired(true))
-      .addRoleOption(opt => opt.setName('entry_role').setDescription('Members holding this role are entered automatically').setRequired(true))
+      .addRoleOption(opt => opt.setName('entry_role').setDescription('Role required to click Enter Giveaway').setRequired(true))
       .addStringOption(opt => opt.setName('booster_bonus').setDescription('Give server boosters 2x entries?').setRequired(true)
         .addChoices(
           { name: 'No', value: 'no' },
@@ -92,11 +92,7 @@ module.exports = {
       if (!giveaway) return interaction.reply({ content: '❌ No giveaway found with that message ID.', ephemeral: true });
 
       if (giveaway.status === 'open') {
-        let entrantCount = 0;
-        try {
-          const tickets = await buildEntrantPool(interaction.guild, giveaway.entry_role_id, !!giveaway.booster_bonus_enabled);
-          entrantCount = new Set(tickets).size;
-        } catch {}
+        const entrantCount = db.getGiveawayEntryCount(giveaway.id);
         const embed = new EmbedBuilder()
           .setColor(0xf2b705)
           .setTitle(`🎉 ${giveaway.title}`)

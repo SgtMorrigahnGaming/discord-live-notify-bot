@@ -8,6 +8,8 @@ const { generateWelcomeCard } = require('../utils/welcomeCard');
 const { requireAuth, requireGuildAccess } = require('./authMiddleware');
 const pollInteractions = require('../services/pollInteractions');
 const pollCloser = require('../services/pollCloser');
+const giveawayCloser = require('../services/giveawayCloser');
+const { buildEntrantPool } = require('../utils/giveawayFormat');
 
 function buildRouter(client) {
   const router = express.Router();
@@ -380,6 +382,98 @@ function buildRouter(client) {
     if (!poll || poll.guild_id !== req.params.guildId) return res.status(404).json({ error: 'Poll not found' });
     if (poll.status === 'closed') return res.status(400).json({ error: 'That poll is already closed' });
     await pollCloser.closePollNow(client, poll.id);
+    res.json({ ok: true });
+  });
+
+  // ---- Giveaways ----
+  guildRouter.get('/giveaways', (req, res) => {
+    const giveaways = db.listGiveawaysForGuild(req.params.guildId);
+    const withWinners = giveaways.map(g => ({
+      ...g,
+      winners: db.getGiveawayWinners(g.id),
+    }));
+    res.json(withWinners);
+  });
+
+  guildRouter.post('/giveaways', async (req, res) => {
+    const { channelId, entryRoleId, boosterEnabled, autoRerollEnabled, title, prize, description, durationHours, winnerCount } = req.body;
+    if (!channelId || !entryRoleId || !title || !prize || !durationHours || !winnerCount) {
+      return res.status(400).json({ error: 'channelId, entryRoleId, title, prize, durationHours, and winnerCount are required' });
+    }
+
+    const trimmedTitle = (title || '').trim();
+    const trimmedPrize = (prize || '').trim();
+    const trimmedDescription = (description || '').trim();
+    if (!trimmedTitle) return res.status(400).json({ error: 'Title is required' });
+    if (!trimmedPrize) return res.status(400).json({ error: 'Prize is required' });
+
+    const hours = Number(durationHours);
+    if (!Number.isFinite(hours) || hours <= 0) {
+      return res.status(400).json({ error: 'durationHours must be a positive number' });
+    }
+    const winners = Number(winnerCount);
+    if (!Number.isInteger(winners) || winners < 1) {
+      return res.status(400).json({ error: 'winnerCount must be a whole number of at least 1' });
+    }
+
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    const role = guild.roles.cache.get(entryRoleId);
+    if (!role) return res.status(404).json({ error: 'Entry role not found' });
+    if (role.managed || role.id === guild.id) {
+      return res.status(400).json({ error: "Can't use that role as the entry role — it's managed by an integration or is @everyone" });
+    }
+
+    const endsAt = Math.floor(Date.now() / 1000) + Math.round(hours * 3600);
+
+    let entrantCount = 0;
+    try {
+      const tickets = await buildEntrantPool(guild, entryRoleId, !!boosterEnabled);
+      entrantCount = new Set(tickets).size;
+    } catch { /* fall back to 0 — dashboard will just show 0 until the next close */ }
+
+    const giveawayId = db.createGiveaway({
+      guildId: req.params.guildId,
+      channelId,
+      title: trimmedTitle,
+      prize: trimmedPrize,
+      description: trimmedDescription || null,
+      winnerCount: winners,
+      entryRoleId,
+      boosterEnabled: !!boosterEnabled,
+      autoRerollEnabled: !!autoRerollEnabled,
+      createdBy: req.session.user.id,
+      endsAt,
+    });
+
+    const embed = require('../utils/giveawayFormat').buildOpenGiveawayEmbed({
+      title: trimmedTitle,
+      prize: trimmedPrize,
+      description: trimmedDescription,
+      winnerCount: winners,
+      entryRoleId,
+      boosterEnabled: !!boosterEnabled,
+      endsAt,
+      entrantCount,
+    });
+
+    const message = await channel.send({ embeds: [embed] }).catch(() => null);
+    if (!message) {
+      db.deleteGiveaway(giveawayId);
+      return res.status(502).json({ error: "Couldn't post in that channel — check my permissions there" });
+    }
+    db.setGiveawayMessage(giveawayId, message.id);
+    db.setGiveawayEntrantCount(giveawayId, entrantCount);
+
+    res.json({ ok: true, giveawayId, messageId: message.id });
+  });
+
+  guildRouter.post('/giveaways/:giveawayId/close', async (req, res) => {
+    const giveaway = db.getGiveaway(req.params.giveawayId);
+    if (!giveaway || giveaway.guild_id !== req.params.guildId) return res.status(404).json({ error: 'Giveaway not found' });
+    if (giveaway.status === 'closed') return res.status(400).json({ error: 'That giveaway is already closed' });
+    await giveawayCloser.closeGiveawayNow(client, giveaway.id);
     res.json({ ok: true });
   });
 
