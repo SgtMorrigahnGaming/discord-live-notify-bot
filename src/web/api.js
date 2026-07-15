@@ -471,6 +471,46 @@ function buildRouter(client) {
     res.json({ ok: true });
   });
 
+  // ---- Mod Action Logging ----
+  guildRouter.get('/modlog', (req, res) => {
+    res.json(db.getModlogConfig(req.params.guildId) || {
+      ban_channel_id: null, kick_channel_id: null, timeout_channel_id: null,
+      roleremove_channel_id: null, spam_channel_id: null,
+      spam_enabled: 0, spam_channel_threshold: 3, spam_timeout_minutes: 10, spam_exempt_role_ids: [],
+    });
+  });
+
+  guildRouter.post('/modlog/channels', (req, res) => {
+    const { banChannelId, kickChannelId, timeoutChannelId, roleremoveChannelId, spamChannelId } = req.body;
+    db.setModlogChannels(req.params.guildId, {
+      banChannelId: banChannelId || null,
+      kickChannelId: kickChannelId || null,
+      timeoutChannelId: timeoutChannelId || null,
+      roleremoveChannelId: roleremoveChannelId || null,
+      spamChannelId: spamChannelId || null,
+    });
+    res.json({ ok: true });
+  });
+
+  guildRouter.post('/modlog/spam', (req, res) => {
+    const { enabled, channelThreshold, timeoutMinutes, exemptRoleIds } = req.body;
+    const threshold = Number(channelThreshold);
+    const timeout = Number(timeoutMinutes);
+    if (!Number.isInteger(threshold) || threshold < 2) {
+      return res.status(400).json({ error: 'channelThreshold must be a whole number of at least 2' });
+    }
+    if (!Number.isFinite(timeout) || timeout <= 0) {
+      return res.status(400).json({ error: 'timeoutMinutes must be a positive number' });
+    }
+    db.setModlogSpamSettings(req.params.guildId, {
+      enabled: !!enabled,
+      channelThreshold: threshold,
+      timeoutMinutes: timeout,
+      exemptRoleIds: Array.isArray(exemptRoleIds) ? exemptRoleIds : [],
+    });
+    res.json({ ok: true });
+  });
+
   return router;
 }
 

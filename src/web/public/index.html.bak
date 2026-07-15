@@ -501,6 +501,7 @@
               <form class="add-form" id="giveawayCreateForm">
                 <select id="giveawayChannel" required></select>
                 <select id="giveawayEntryRole" required></select>
+                <div class="rr-description-hint">Members need this role to click "Enter Giveaway" — entry is opt-in, not automatic.</div>
                 <input type="text" id="giveawayTitle" maxlength="100" placeholder="Title" required />
                 <input type="text" id="giveawayPrize" maxlength="200" placeholder="Prize" required />
                 <input type="number" id="giveawayDuration" min="0.1" step="0.1" placeholder="Duration in hours" required />

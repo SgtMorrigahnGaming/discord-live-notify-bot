@@ -14,11 +14,15 @@ const pollCloser = require('./services/pollCloser');
 const pollInteractions = require('./services/pollInteractions');
 const giveawayCloser = require('./services/giveawayCloser');
 const giveawayInteractions = require('./services/giveawayInteractions');
+const modLogHandler = require('./services/modLogHandler');
+const spamDetector = require('./services/spamDetector');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent, // required for the cross-channel spam detector; must also be enabled in the Discord Developer Portal
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User, Partials.GuildMember],
 });
@@ -43,6 +47,8 @@ client.once('clientReady', () => {
   guildCleanupHandler.register(client);
   pollCloser.start(client);
   giveawayCloser.start(client);
+  modLogHandler.register(client);
+  spamDetector.register(client);
 });
 
 client.on('interactionCreate', async (interaction) => {

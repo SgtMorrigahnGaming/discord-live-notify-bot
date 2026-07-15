@@ -31,6 +31,12 @@ async function announceTwitchLive(client, sub, stream, user) {
     fillTemplate(sub.custom_message, vars) || fillTemplate(config.twitch.defaultMessage, vars),
   ].filter(Boolean).join(' ');
 
+  const thumbnail = stream.thumbnail_url
+    ? `${stream.thumbnail_url
+        .replace('{width}', '1280')
+        .replace('{height}', '720')}?v=${encodeURIComponent(stream.started_at || Date.now())}`
+    : null;
+
   const embed = new EmbedBuilder()
     .setColor(0x9146ff)
     .setTitle(stream.title || 'Untitled stream')
@@ -40,7 +46,7 @@ async function announceTwitchLive(client, sub, stream, user) {
       { name: 'Game', value: stream.game_name || 'N/A', inline: true },
       { name: 'Viewers', value: String(stream.viewer_count ?? 0), inline: true },
     )
-    .setImage(stream.thumbnail_url ? stream.thumbnail_url.replace('{width}', '1280').replace('{height}', '720') : null)
+    .setImage(thumbnail)
     .setTimestamp(new Date(stream.started_at));
 
   await channel.send({ content, embeds: [embed] }).catch(err => {

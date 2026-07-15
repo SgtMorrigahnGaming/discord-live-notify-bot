@@ -9,7 +9,6 @@ const { requireAuth, requireGuildAccess } = require('./authMiddleware');
 const pollInteractions = require('../services/pollInteractions');
 const pollCloser = require('../services/pollCloser');
 const giveawayCloser = require('../services/giveawayCloser');
-const { buildEntrantPool } = require('../utils/giveawayFormat');
 
 function buildRouter(client) {
   const router = express.Router();
@@ -388,11 +387,12 @@ function buildRouter(client) {
   // ---- Giveaways ----
   guildRouter.get('/giveaways', (req, res) => {
     const giveaways = db.listGiveawaysForGuild(req.params.guildId);
-    const withWinners = giveaways.map(g => ({
+    const withDetails = giveaways.map(g => ({
       ...g,
+      entrant_count: db.getGiveawayEntryCount(g.id),
       winners: db.getGiveawayWinners(g.id),
     }));
-    res.json(withWinners);
+    res.json(withDetails);
   });
 
   guildRouter.post('/giveaways', async (req, res) => {
@@ -427,12 +427,6 @@ function buildRouter(client) {
 
     const endsAt = Math.floor(Date.now() / 1000) + Math.round(hours * 3600);
 
-    let entrantCount = 0;
-    try {
-      const tickets = await buildEntrantPool(guild, entryRoleId, !!boosterEnabled);
-      entrantCount = new Set(tickets).size;
-    } catch { /* fall back to 0 — dashboard will just show 0 until the next close */ }
-
     const giveawayId = db.createGiveaway({
       guildId: req.params.guildId,
       channelId,
@@ -447,7 +441,8 @@ function buildRouter(client) {
       endsAt,
     });
 
-    const embed = require('../utils/giveawayFormat').buildOpenGiveawayEmbed({
+    const giveawayFormat = require('../utils/giveawayFormat');
+    const embed = giveawayFormat.buildOpenGiveawayEmbed({
       title: trimmedTitle,
       prize: trimmedPrize,
       description: trimmedDescription,
@@ -455,16 +450,15 @@ function buildRouter(client) {
       entryRoleId,
       boosterEnabled: !!boosterEnabled,
       endsAt,
-      entrantCount,
+      entrantCount: 0,
     });
 
-    const message = await channel.send({ embeds: [embed] }).catch(() => null);
+    const message = await channel.send({ embeds: [embed], components: [giveawayFormat.buildEnterButtonRow(giveawayId, false)] }).catch(() => null);
     if (!message) {
       db.deleteGiveaway(giveawayId);
       return res.status(502).json({ error: "Couldn't post in that channel — check my permissions there" });
     }
     db.setGiveawayMessage(giveawayId, message.id);
-    db.setGiveawayEntrantCount(giveawayId, entrantCount);
 
     res.json({ ok: true, giveawayId, messageId: message.id });
   });

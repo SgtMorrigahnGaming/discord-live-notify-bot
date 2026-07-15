@@ -55,13 +55,15 @@
     <tr><td>Twitch usernames / YouTube channel IDs you add</td><td>To check if they've gone live or posted a new video</td></tr>
     <tr><td>Custom announcement or welcome message text you write</td><td>To post it when the relevant event happens</td></tr>
     <tr><td>Reaction role panel message IDs and emoji-role mappings</td><td>To grant the right role when someone reacts</td></tr>
+    <tr><td>Message text/links (spam detector only, in-memory, ~3–5 min)</td><td>To detect the same content being posted across multiple channels</td></tr>
+    <tr><td>Mod-log channel routing, spam threshold, timeout duration, exempt roles you configure</td><td>To run the mod logging and spam detection features you've enabled</td></tr>
   </table>
 
   <p>If you log into the web dashboard, the bot temporarily holds your Discord user ID, username, avatar, and which servers you can manage in a login session (a browser cookie). This session data is <strong>not</strong> written to the database — it lives only in server memory and automatically expires after 7 days or when you log out.</p>
 
   <h2>2. What's <span class="good">not</span> collected</h2>
   <ul>
-    <li>The bot does not read or store the content of your messages</li>
+    <li>Message content is read only by the automated spam detector, and only to check whether the same text or link has been posted across multiple channels — it's never written to the database or stored anywhere. It's held in memory for a few minutes, then automatically discarded.</li>
     <li>The bot does not read direct messages</li>
     <li>No analytics, tracking pixels, or third-party advertising of any kind</li>
     <li>Your data is never sold, rented, or shared with advertisers</li>
