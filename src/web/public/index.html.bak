@@ -188,6 +188,16 @@
   }
   form.add-form button:hover { opacity: 0.9; }
   form.add-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+  form.add-form label { font-size: 12px; color: var(--text-dim); margin-bottom: -4px; }
+  .modlog-exempt-roles {
+    display: flex; flex-wrap: wrap; gap: 8px; background: #1c1f28; border: 1px solid var(--panel-border);
+    border-radius: 8px; padding: 10px 12px; max-height: 140px; overflow-y: auto;
+  }
+  .modlog-exempt-roles label {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text);
+    margin: 0; cursor: pointer; background: none; border: none; padding: 0;
+  }
+  .modlog-exempt-roles .empty-state { padding: 0; }
 
   #toast {
     position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -367,6 +377,7 @@
         <select id="guildSelect"></select>
         <div class="nav-items">
           <button class="nav-item active" data-module="welcome" style="--nav-accent: #3ddc97;"><span class="swatch"></span>Welcome</button>
+          <button class="nav-item" data-module="modlogging" style="--nav-accent: #e74c3c;"><span class="swatch"></span>Mod Logging</button>
           <button class="nav-item" data-module="twitch" style="--nav-accent: #9146ff;"><span class="swatch"></span>Twitch</button>
           <button class="nav-item" data-module="youtube" style="--nav-accent: #ff3b3b;"><span class="swatch"></span>YouTube</button>
           <button class="nav-item" data-module="polls" style="--nav-accent: #f2b705;"><span class="swatch"></span>Polls</button>
@@ -453,6 +464,45 @@
               </div>
               <button class="btn-ghost" id="welcomePreviewBtn" type="button" style="margin-top: 10px;">Preview card</button>
               <img id="welcomePreviewImg" alt="Welcome card preview" />
+            </section>
+          </section>
+
+          <section class="module-page" id="module-modlogging">
+            <section class="panel" style="--accent: #e74c3c;">
+              <h2><span class="swatch"></span>Mod Logging</h2>
+              <div class="rr-description-hint">Every server's channel layout is different, so nothing here is preset — pick a channel for each category, or leave it blank to skip logging that category.</div>
+              <form class="add-form" id="modlogChannelsForm">
+                <label>Bans</label>
+                <select id="modlogBanChannel"><option value="">Not logged</option></select>
+                <label>Kicks</label>
+                <select id="modlogKickChannel"><option value="">Not logged</option></select>
+                <label>Timeouts</label>
+                <select id="modlogTimeoutChannel"><option value="">Not logged</option></select>
+                <label>Role removals</label>
+                <select id="modlogRoleremoveChannel"><option value="">Not logged</option></select>
+                <label>Spam detected</label>
+                <select id="modlogSpamChannel"><option value="">Not logged</option></select>
+                <button type="submit">Save channel routing</button>
+              </form>
+
+              <h2 style="margin-top: 24px;"><span class="swatch"></span>Cross-channel spam detection</h2>
+              <div class="rr-description-hint">Watches for the same message (identical text or a shared link) posted by the same user across multiple channels within a few minutes, then deletes every copy and times the user out.</div>
+              <form class="add-form" id="modlogSpamForm">
+                <div class="toggle-row">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="modlogSpamEnabled" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span>Spam detection is on</span>
+                </div>
+                <label>Trigger after this many distinct channels</label>
+                <input type="number" id="modlogSpamThreshold" min="2" step="1" value="3" required />
+                <label>Timeout duration (minutes)</label>
+                <input type="number" id="modlogSpamTimeout" min="1" step="1" value="10" required />
+                <label>Exempt roles (never flagged as spam)</label>
+                <div id="modlogExemptRoles" class="modlog-exempt-roles"></div>
+                <button type="submit">Save spam settings</button>
+              </form>
             </section>
           </section>
 
@@ -582,7 +632,7 @@
 
   async function loadGuild(guildId) {
     state.guildId = guildId;
-    const [channels, roles, twitchSubs, youtubeSubs, freeGamesSubs, welcomeConfig, rrPanels, emojis, polls, giveaways] = await Promise.all([
+    const [channels, roles, twitchSubs, youtubeSubs, freeGamesSubs, welcomeConfig, rrPanels, emojis, polls, giveaways, modlogConfig] = await Promise.all([
       api(`/guilds/${guildId}/channels`),
       api(`/guilds/${guildId}/roles`),
       api(`/guilds/${guildId}/twitch`),
@@ -593,6 +643,7 @@
       api(`/guilds/${guildId}/emojis`),
       api(`/guilds/${guildId}/polls`),
       api(`/guilds/${guildId}/giveaways`),
+      api(`/guilds/${guildId}/modlog`),
     ]);
     state.channels = channels;
     state.roles = roles;
@@ -604,6 +655,13 @@
     document.getElementById('rrChannel').innerHTML = chanOpts;
     document.getElementById('pollChannel').innerHTML = chanOpts;
     document.getElementById('giveawayChannel').innerHTML = chanOpts;
+
+    const notLoggedOpt = '<option value="">Not logged</option>';
+    document.getElementById('modlogBanChannel').innerHTML = notLoggedOpt + chanOpts;
+    document.getElementById('modlogKickChannel').innerHTML = notLoggedOpt + chanOpts;
+    document.getElementById('modlogTimeoutChannel').innerHTML = notLoggedOpt + chanOpts;
+    document.getElementById('modlogRoleremoveChannel').innerHTML = notLoggedOpt + chanOpts;
+    document.getElementById('modlogSpamChannel').innerHTML = notLoggedOpt + chanOpts;
 
     const roleOpts = '<option value="">No role ping</option>' + roles.map(r => `<option value="${r.id}">@${r.name}</option>`).join('');
     document.getElementById('twitchRole').innerHTML = roleOpts;
@@ -617,6 +675,7 @@
     renderReactionRoles(rrPanels, channels, roles, emojis);
     renderPolls(polls, channels);
     renderGiveaways(giveaways, channels, roles);
+    renderModlog(modlogConfig, roles);
   }
 
   function escapeHtml(str) {
@@ -967,6 +1026,64 @@
     } catch (err) { toast(err.message, 'err'); }
     btn.disabled = false;
     btn.textContent = 'Preview card';
+  });
+
+  function renderModlog(config, roles) {
+    document.getElementById('modlogBanChannel').value = config.ban_channel_id || '';
+    document.getElementById('modlogKickChannel').value = config.kick_channel_id || '';
+    document.getElementById('modlogTimeoutChannel').value = config.timeout_channel_id || '';
+    document.getElementById('modlogRoleremoveChannel').value = config.roleremove_channel_id || '';
+    document.getElementById('modlogSpamChannel').value = config.spam_channel_id || '';
+
+    document.getElementById('modlogSpamEnabled').checked = !!config.spam_enabled;
+    document.getElementById('modlogSpamThreshold').value = config.spam_channel_threshold || 3;
+    document.getElementById('modlogSpamTimeout').value = config.spam_timeout_minutes || 10;
+
+    const exemptContainer = document.getElementById('modlogExemptRoles');
+    const exemptIds = new Set(config.spam_exempt_role_ids || []);
+    if (roles.length === 0) {
+      exemptContainer.innerHTML = '<div class="empty-state">No roles in this server yet.</div>';
+    } else {
+      exemptContainer.innerHTML = roles.map(r => `
+        <label>
+          <input type="checkbox" class="modlog-exempt-role-checkbox" value="${r.id}" ${exemptIds.has(r.id) ? 'checked' : ''} />
+          @${escapeHtml(r.name)}
+        </label>`).join('');
+    }
+  }
+
+  document.getElementById('modlogChannelsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api(`/guilds/${state.guildId}/modlog/channels`, {
+        method: 'POST',
+        body: JSON.stringify({
+          banChannelId: document.getElementById('modlogBanChannel').value || null,
+          kickChannelId: document.getElementById('modlogKickChannel').value || null,
+          timeoutChannelId: document.getElementById('modlogTimeoutChannel').value || null,
+          roleremoveChannelId: document.getElementById('modlogRoleremoveChannel').value || null,
+          spamChannelId: document.getElementById('modlogSpamChannel').value || null,
+        }),
+      });
+      toast('Channel routing saved', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  });
+
+  document.getElementById('modlogSpamForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const exemptRoleIds = Array.from(document.querySelectorAll('.modlog-exempt-role-checkbox:checked')).map(cb => cb.value);
+    try {
+      await api(`/guilds/${state.guildId}/modlog/spam`, {
+        method: 'POST',
+        body: JSON.stringify({
+          enabled: document.getElementById('modlogSpamEnabled').checked,
+          channelThreshold: Number(document.getElementById('modlogSpamThreshold').value),
+          timeoutMinutes: Number(document.getElementById('modlogSpamTimeout').value),
+          exemptRoleIds,
+        }),
+      });
+      toast('Spam settings saved', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
   });
 
   // ---- Reaction roles ----

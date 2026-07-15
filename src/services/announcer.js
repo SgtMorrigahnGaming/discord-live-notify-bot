@@ -86,9 +86,9 @@ async function announceYoutubeVideo(client, sub, video) {
 }
 
 const SOURCE_STYLE = {
-  steam: { label: 'Steam', color: 0x1b2838 },
-  gog: { label: 'GOG', color: 0x8b40e3 },
-  epic: { label: 'Epic Games', color: 0x2a2a2a },
+  steam: { label: 'Steam', color: 0x1b2838, gpSourced: true },
+  gog: { label: 'GOG', color: 0x8b40e3, gpSourced: true },
+  epic: { label: 'Epic Games', color: 0x2a2a2a, gpSourced: false },
 };
 
 async function announceFreeGame(client, sub, source, game) {
@@ -98,15 +98,24 @@ async function announceFreeGame(client, sub, source, game) {
     return;
   }
 
-  const style = SOURCE_STYLE[source] || { label: source, color: 0x5865f2 };
+  const style = SOURCE_STYLE[source] || { label: source, color: 0x5865f2, gpSourced: false };
+
+  const fields = [{ name: 'Price', value: 'FREE', inline: true }];
+  if (style.gpSourced) {
+    fields.push({ name: 'Source', value: '[GamerPower.com](https://www.gamerpower.com)', inline: true });
+  }
 
   const embed = new EmbedBuilder()
     .setColor(style.color)
     .setAuthor({ name: style.label })
     .setTitle(`Free Game: ${game.title}`)
     .setURL(game.url)
-    .addFields({ name: 'Price', value: 'FREE', inline: true })
+    .addFields(fields)
     .setImage(game.image || null);
+
+  if (style.gpSourced) {
+    embed.setFooter({ text: 'via GamerPower' });
+  }
 
   await channel.send({ embeds: [embed] }).catch(err => {
     logger.error(`Failed to send free games announcement in guild ${sub.guild_id}:`, err.message);

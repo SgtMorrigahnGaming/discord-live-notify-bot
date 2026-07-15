@@ -173,6 +173,23 @@ CREATE TABLE IF NOT EXISTS giveaway_entries (
   entered_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   UNIQUE(giveaway_id, user_id)
 );
+
+-- Mod Action Logging. One row per guild. Each *_channel_id is independently nullable/admin-set —
+-- no hardcoded defaults, since channel layout varies a lot between servers. spam_* columns
+-- configure the cross-channel spam detector, which is a distinct feature folded into this module.
+CREATE TABLE IF NOT EXISTS modlog_config (
+  guild_id TEXT PRIMARY KEY,
+  ban_channel_id TEXT,
+  kick_channel_id TEXT,
+  timeout_channel_id TEXT,
+  roleremove_channel_id TEXT,
+  spam_channel_id TEXT,
+  spam_enabled INTEGER NOT NULL DEFAULT 0,
+  spam_channel_threshold INTEGER NOT NULL DEFAULT 3,
+  spam_timeout_minutes INTEGER NOT NULL DEFAULT 10,
+  spam_exempt_role_ids TEXT NOT NULL DEFAULT '[]',
+  updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
 `);
 
 module.exports = {
@@ -561,6 +578,60 @@ markFreeGameAnnounced(source, externalId) {
     `).all(nowTs);
   },
 
+  // ---- Mod Action Logging ----
+  getModlogConfig(guildId) {
+    const row = db.prepare(`SELECT * FROM modlog_config WHERE guild_id = ?`).get(guildId);
+    if (!row) return null;
+    return { ...row, spam_exempt_role_ids: JSON.parse(row.spam_exempt_role_ids) };
+  },
+  // Ensures a row exists so partial updates (channels-only, spam-only) always have something to UPDATE.
+  ensureModlogConfig(guildId) {
+    db.prepare(`INSERT OR IGNORE INTO modlog_config (guild_id) VALUES (?)`).run(guildId);
+  },
+  setModlogChannels(guildId, { banChannelId, kickChannelId, timeoutChannelId, roleremoveChannelId, spamChannelId }) {
+    this.ensureModlogConfig(guildId);
+    db.prepare(`
+      UPDATE modlog_config SET
+        ban_channel_id = @banChannelId,
+        kick_channel_id = @kickChannelId,
+        timeout_channel_id = @timeoutChannelId,
+        roleremove_channel_id = @roleremoveChannelId,
+        spam_channel_id = @spamChannelId,
+        updated_at = strftime('%s','now')
+      WHERE guild_id = @guildId
+    `).run({
+      guildId,
+      banChannelId: banChannelId || null,
+      kickChannelId: kickChannelId || null,
+      timeoutChannelId: timeoutChannelId || null,
+      roleremoveChannelId: roleremoveChannelId || null,
+      spamChannelId: spamChannelId || null,
+    });
+  },
+  setModlogSpamSettings(guildId, { enabled, channelThreshold, timeoutMinutes, exemptRoleIds }) {
+    this.ensureModlogConfig(guildId);
+    db.prepare(`
+      UPDATE modlog_config SET
+        spam_enabled = @enabled,
+        spam_channel_threshold = @channelThreshold,
+        spam_timeout_minutes = @timeoutMinutes,
+        spam_exempt_role_ids = @exemptRoleIds,
+        updated_at = strftime('%s','now')
+      WHERE guild_id = @guildId
+    `).run({
+      guildId,
+      enabled: enabled ? 1 : 0,
+      channelThreshold,
+      timeoutMinutes,
+      exemptRoleIds: JSON.stringify(exemptRoleIds || []),
+    });
+  },
+  // Fast lookup for the spam detector's hot path (every message) — avoids the JSON.parse
+  // of the full config getter and only fires for guilds that have it enabled.
+  listGuildsWithSpamDetectionEnabled() {
+    return db.prepare(`SELECT guild_id FROM modlog_config WHERE spam_enabled = 1`).all().map(r => r.guild_id);
+  },
+
   // ---- Full data purge (called when the bot is removed from a server) ----
   purgeGuildData(guildId) {
     const tx = db.transaction((id) => {
@@ -576,6 +647,7 @@ markFreeGameAnnounced(source, externalId) {
       db.prepare(`DELETE FROM giveaway_winners WHERE giveaway_id IN (SELECT id FROM giveaways WHERE guild_id = ?)`).run(id);
       db.prepare(`DELETE FROM giveaway_entries WHERE giveaway_id IN (SELECT id FROM giveaways WHERE guild_id = ?)`).run(id);
       db.prepare(`DELETE FROM giveaways WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM modlog_config WHERE guild_id = ?`).run(id);
     });
     tx(guildId);
     this.pruneOrphanTwitchState();

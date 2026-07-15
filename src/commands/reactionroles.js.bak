@@ -23,7 +23,7 @@ module.exports = {
       .addChannelOption(opt => opt.setName('new_channel').setDescription('Move the panel to this channel (leave blank to keep it where it is)').addChannelTypes(ChannelType.GuildText).setRequired(false)))
     .addSubcommand(sub => sub
       .setName('add')
-      .setDescription('Attach an emoji-role pair to an existing panel message')
+      .setDescription('Attach an emoji-role pair to a panel (or change its role if the emoji is already on it)')
       .addStringOption(opt => opt.setName('message_id').setDescription('The panel message ID (right-click it -> Copy Message ID)').setRequired(true))
       .addChannelOption(opt => opt.setName('channel').setDescription('Channel the panel message is in').addChannelTypes(ChannelType.GuildText).setRequired(true))
       .addStringOption(opt => opt.setName('emoji').setDescription('Emoji to react with (pick from the emoji picker)').setRequired(true))

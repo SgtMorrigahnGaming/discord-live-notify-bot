@@ -37,7 +37,12 @@ module.exports = {
     .addSubcommand(sub => sub
       .setName('list')
       .setDescription('List emoji-role pairs on a panel')
-      .addStringOption(opt => opt.setName('message_id').setDescription('The panel message ID').setRequired(true))),
+      .addStringOption(opt => opt.setName('message_id').setDescription('The panel message ID').setRequired(true)))
+    .addSubcommand(sub => sub
+      .setName('delete-panel')
+      .setDescription('Delete a reaction role panel entirely (message + all its emoji-role pairs)')
+      .addStringOption(opt => opt.setName('message_id').setDescription('The panel message ID (right-click it -> Copy Message ID)').setRequired(true))
+      .addChannelOption(opt => opt.setName('channel').setDescription('Channel the panel message is in').addChannelTypes(ChannelType.GuildText).setRequired(true))),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
@@ -53,8 +58,10 @@ module.exports = {
         return interaction.reply({ content: `❌ Couldn't post in ${channel} — check I have permission to send messages there.`, ephemeral: true });
       }
 
+      db.createReactionRolePanel(interaction.guildId, channel.id, message.id);
+
       return interaction.reply({
-        content: `✅ Panel posted in ${channel}.\nMessage ID: \`${message.id}\`\n\nNow use \`/reactionroles add\` with that message ID to attach emoji-role pairs to it.`,
+        content: `✅ Panel posted in ${channel}.\nMessage ID: \`${message.id}\`\n\nNow use \`/reactionroles add\` with that message ID to attach emoji-role pairs to it — or manage it from the dashboard's Reaction Roles tab.`,
         ephemeral: true,
       });
     }
@@ -205,6 +212,21 @@ module.exports = {
           return `${emoji} → <@&${r.role_id}>`;
         }).join('\n'));
       return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
+    if (sub === 'delete-panel') {
+      await interaction.deferReply({ ephemeral: true });
+      const messageId = interaction.options.getString('message_id').trim();
+      const channel = interaction.options.getChannel('channel');
+
+      const message = await channel.messages.fetch(messageId).catch(() => null);
+      if (message && message.author.id === interaction.client.user.id) {
+        await message.delete().catch(() => {});
+      }
+
+      db.deleteReactionRolePanel(messageId);
+
+      return interaction.editReply(`🗑️ Panel deleted from ${channel} — the message and all its emoji-role pairs are gone.`);
     }
   },
 };
