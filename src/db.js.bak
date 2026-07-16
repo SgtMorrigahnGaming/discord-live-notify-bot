@@ -57,7 +57,15 @@ CREATE TABLE IF NOT EXISTS reaction_roles (
   dm_message TEXT,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   UNIQUE(message_id, emoji_id, emoji_name)
- );
+);
+
+CREATE TABLE IF NOT EXISTS reaction_role_panels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  message_id TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
 
 CREATE TABLE IF NOT EXISTS guild_welcome_config (
   guild_id TEXT PRIMARY KEY,
@@ -192,6 +200,14 @@ CREATE TABLE IF NOT EXISTS modlog_config (
 );
 `);
 
+// Backfill reaction_role_panels from pre-existing reaction_roles rows -- migration for
+// installs made before panels got their own table. Safe to run on every startup
+// (INSERT OR IGNORE + UNIQUE message_id makes it idempotent).
+db.exec(`
+  INSERT OR IGNORE INTO reaction_role_panels (guild_id, channel_id, message_id)
+  SELECT DISTINCT guild_id, channel_id, message_id FROM reaction_roles
+`);
+
 module.exports = {
   raw: db,
 
@@ -279,6 +295,19 @@ module.exports = {
   },
 
   // ---- Reaction roles ----
+  createReactionRolePanel(guildId, channelId, messageId) {
+    db.prepare(`
+      INSERT OR IGNORE INTO reaction_role_panels (guild_id, channel_id, message_id)
+      VALUES (@guildId, @channelId, @messageId)
+    `).run({ guildId, channelId, messageId });
+  },
+  deleteReactionRolePanel(messageId) {
+    const tx = db.transaction((id) => {
+      db.prepare(`DELETE FROM reaction_roles WHERE message_id = ?`).run(id);
+      db.prepare(`DELETE FROM reaction_role_panels WHERE message_id = ?`).run(id);
+    });
+    tx(messageId);
+  },
   addReactionRole(guildId, channelId, messageId, emojiId, emojiName, roleId, dmMessage) {
     db.prepare(`
       INSERT INTO reaction_roles (guild_id, channel_id, message_id, emoji_id, emoji_name, role_id, dm_message)
@@ -304,13 +333,20 @@ module.exports = {
     return db.prepare(`SELECT * FROM reaction_roles WHERE message_id = ?`).all(messageId);
   },
   listReactionRolePanelsForGuild(guildId) {
-    return db.prepare(`SELECT DISTINCT message_id, channel_id FROM reaction_roles WHERE guild_id = ?`).all(guildId);
+    return db.prepare(`SELECT message_id, channel_id FROM reaction_role_panels WHERE guild_id = ? ORDER BY created_at`).all(guildId);
   },
   movePanel(oldMessageId, newMessageId, newChannelId) {
-    db.prepare(`
-      UPDATE reaction_roles SET message_id = @newMessageId, channel_id = @newChannelId
-      WHERE message_id = @oldMessageId
-    `).run({ oldMessageId, newMessageId, newChannelId });
+    const tx = db.transaction(() => {
+      db.prepare(`
+        UPDATE reaction_roles SET message_id = @newMessageId, channel_id = @newChannelId
+        WHERE message_id = @oldMessageId
+      `).run({ oldMessageId, newMessageId, newChannelId });
+      db.prepare(`
+        UPDATE reaction_role_panels SET message_id = @newMessageId, channel_id = @newChannelId
+        WHERE message_id = @oldMessageId
+      `).run({ oldMessageId, newMessageId, newChannelId });
+    });
+    tx();
   },
 
   // ---- Welcome config ----
@@ -638,6 +674,7 @@ markFreeGameAnnounced(source, externalId) {
       db.prepare(`DELETE FROM twitch_subscriptions WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM youtube_subscriptions WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM reaction_roles WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM reaction_role_panels WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM guild_welcome_config WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM freegames_subscriptions WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM poll_drafts WHERE guild_id = ?`).run(id);

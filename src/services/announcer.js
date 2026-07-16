@@ -89,6 +89,15 @@ const SOURCE_STYLE = {
   steam: { label: 'Steam', color: 0x1b2838, gpSourced: true },
   gog: { label: 'GOG', color: 0x8b40e3, gpSourced: true },
   epic: { label: 'Epic Games', color: 0x2a2a2a, gpSourced: false },
+  'drm-free': { label: 'DRM-Free', color: 0x2ecc71, gpSourced: true },
+  ps4: { label: 'PlayStation 4', color: 0x003791, gpSourced: true },
+  ps5: { label: 'PlayStation 5', color: 0x0070d1, gpSourced: true },
+  'xbox-series-xs': { label: 'Xbox Series X/S', color: 0x107c10, gpSourced: true },
+  'xbox-one': { label: 'Xbox One', color: 0x107c10, gpSourced: true },
+  switch: { label: 'Nintendo Switch', color: 0xe60012, gpSourced: true },
+  android: { label: 'Android', color: 0x3ddc84, gpSourced: true },
+  ios: { label: 'iOS', color: 0x000000, gpSourced: true },
+  itchio: { label: 'itch.io', color: 0xfa5c5c, gpSourced: true },
 };
 
 async function announceFreeGame(client, sub, source, game) {
@@ -112,10 +121,6 @@ async function announceFreeGame(client, sub, source, game) {
     .setURL(game.url)
     .addFields(fields)
     .setImage(game.image || null);
-
-  if (style.gpSourced) {
-    embed.setFooter({ text: 'via GamerPower' });
-  }
 
   await channel.send({ embeds: [embed] }).catch(err => {
     logger.error(`Failed to send free games announcement in guild ${sub.guild_id}:`, err.message);

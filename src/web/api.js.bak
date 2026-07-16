@@ -218,6 +218,7 @@ function buildRouter(client) {
     const message = await channel.send({ embeds: [embed] }).catch(() => null);
     if (!message) return res.status(502).json({ error: "Couldn't post in that channel — check my permissions there" });
 
+    db.createReactionRolePanel(req.params.guildId, channelId, message.id);
     res.json({ ok: true, messageId: message.id, channelId });
   });
 
@@ -313,6 +314,20 @@ function buildRouter(client) {
 
     const changes = db.removeReactionRole(req.params.messageId, emojiId, emojiName);
     if (changes === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
+  });
+
+  guildRouter.delete('/reactionroles/panels/:messageId', async (req, res) => {
+    const channelId = req.query.channelId;
+    if (!channelId) return res.status(400).json({ error: 'channelId query param is required' });
+
+    const channel = client.channels.cache.get(channelId);
+    const message = await channel?.messages.fetch(req.params.messageId).catch(() => null);
+    if (message && message.author.id === client.user.id) {
+      await message.delete().catch(() => {});
+    }
+
+    db.deleteReactionRolePanel(req.params.messageId);
     res.json({ ok: true });
   });
 

@@ -57,15 +57,7 @@ CREATE TABLE IF NOT EXISTS reaction_roles (
   dm_message TEXT,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   UNIQUE(message_id, emoji_id, emoji_name)
-);
-
-CREATE TABLE IF NOT EXISTS reaction_role_panels (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  guild_id TEXT NOT NULL,
-  channel_id TEXT NOT NULL,
-  message_id TEXT NOT NULL UNIQUE,
-  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
-);
+ );
 
 CREATE TABLE IF NOT EXISTS guild_welcome_config (
   guild_id TEXT PRIMARY KEY,
@@ -77,7 +69,7 @@ CREATE TABLE IF NOT EXISTS guild_welcome_config (
 CREATE TABLE IF NOT EXISTS freegames_subscriptions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   guild_id TEXT NOT NULL,
-  source TEXT NOT NULL CHECK(source IN ('steam','gog','epic')),
+  source TEXT NOT NULL CHECK(source IN ('steam','gog','epic','drm-free','ps4','ps5','xbox-series-xs','xbox-one','switch','android','ios','itchio')),
   channel_id TEXT NOT NULL,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   UNIQUE(guild_id, source)
@@ -200,13 +192,35 @@ CREATE TABLE IF NOT EXISTS modlog_config (
 );
 `);
 
-// Backfill reaction_role_panels from pre-existing reaction_roles rows -- migration for
-// installs made before panels got their own table. Safe to run on every startup
-// (INSERT OR IGNORE + UNIQUE message_id makes it idempotent).
-db.exec(`
-  INSERT OR IGNORE INTO reaction_role_panels (guild_id, channel_id, message_id)
-  SELECT DISTINCT guild_id, channel_id, message_id FROM reaction_roles
-`);
+// --- Migration: expand freegames_subscriptions.source CHECK constraint ---
+// SQLite can't ALTER a CHECK constraint in place. Existing installs created
+// before the extra GamerPower platforms were added still have the old
+// 3-value constraint, which would reject inserts for the new sources. If
+// detected, rebuild the table with the new constraint and copy rows over.
+(function migrateFreeGamesSources() {
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='freegames_subscriptions'`).get();
+  if (!row || row.sql.includes('itchio')) return; // already current schema
+
+  const migrate = db.transaction(() => {
+    db.exec(`ALTER TABLE freegames_subscriptions RENAME TO freegames_subscriptions_old`);
+    db.exec(`
+      CREATE TABLE freegames_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id TEXT NOT NULL,
+        source TEXT NOT NULL CHECK(source IN ('steam','gog','epic','drm-free','ps4','ps5','xbox-series-xs','xbox-one','switch','android','ios','itchio')),
+        channel_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        UNIQUE(guild_id, source)
+      );
+    `);
+    db.exec(`
+      INSERT INTO freegames_subscriptions (id, guild_id, source, channel_id, created_at)
+      SELECT id, guild_id, source, channel_id, created_at FROM freegames_subscriptions_old;
+    `);
+    db.exec(`DROP TABLE freegames_subscriptions_old`);
+  });
+  migrate();
+})();
 
 module.exports = {
   raw: db,
@@ -295,19 +309,6 @@ module.exports = {
   },
 
   // ---- Reaction roles ----
-  createReactionRolePanel(guildId, channelId, messageId) {
-    db.prepare(`
-      INSERT OR IGNORE INTO reaction_role_panels (guild_id, channel_id, message_id)
-      VALUES (@guildId, @channelId, @messageId)
-    `).run({ guildId, channelId, messageId });
-  },
-  deleteReactionRolePanel(messageId) {
-    const tx = db.transaction((id) => {
-      db.prepare(`DELETE FROM reaction_roles WHERE message_id = ?`).run(id);
-      db.prepare(`DELETE FROM reaction_role_panels WHERE message_id = ?`).run(id);
-    });
-    tx(messageId);
-  },
   addReactionRole(guildId, channelId, messageId, emojiId, emojiName, roleId, dmMessage) {
     db.prepare(`
       INSERT INTO reaction_roles (guild_id, channel_id, message_id, emoji_id, emoji_name, role_id, dm_message)
@@ -333,20 +334,13 @@ module.exports = {
     return db.prepare(`SELECT * FROM reaction_roles WHERE message_id = ?`).all(messageId);
   },
   listReactionRolePanelsForGuild(guildId) {
-    return db.prepare(`SELECT message_id, channel_id FROM reaction_role_panels WHERE guild_id = ? ORDER BY created_at`).all(guildId);
+    return db.prepare(`SELECT DISTINCT message_id, channel_id FROM reaction_roles WHERE guild_id = ?`).all(guildId);
   },
   movePanel(oldMessageId, newMessageId, newChannelId) {
-    const tx = db.transaction(() => {
-      db.prepare(`
-        UPDATE reaction_roles SET message_id = @newMessageId, channel_id = @newChannelId
-        WHERE message_id = @oldMessageId
-      `).run({ oldMessageId, newMessageId, newChannelId });
-      db.prepare(`
-        UPDATE reaction_role_panels SET message_id = @newMessageId, channel_id = @newChannelId
-        WHERE message_id = @oldMessageId
-      `).run({ oldMessageId, newMessageId, newChannelId });
-    });
-    tx();
+    db.prepare(`
+      UPDATE reaction_roles SET message_id = @newMessageId, channel_id = @newChannelId
+      WHERE message_id = @oldMessageId
+    `).run({ oldMessageId, newMessageId, newChannelId });
   },
 
   // ---- Welcome config ----
@@ -674,7 +668,6 @@ markFreeGameAnnounced(source, externalId) {
       db.prepare(`DELETE FROM twitch_subscriptions WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM youtube_subscriptions WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM reaction_roles WHERE guild_id = ?`).run(id);
-      db.prepare(`DELETE FROM reaction_role_panels WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM guild_welcome_config WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM freegames_subscriptions WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM poll_drafts WHERE guild_id = ?`).run(id);

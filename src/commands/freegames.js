@@ -1,24 +1,39 @@
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder } = require('discord.js');
 const db = require('../db');
 
-const SOURCE_LABELS = { steam: 'Steam', gog: 'GOG', epic: 'Epic Games' };
+const SOURCE_LABELS = {
+  steam: 'Steam',
+  gog: 'GOG',
+  epic: 'Epic Games',
+  'drm-free': 'DRM-Free',
+  ps4: 'PlayStation 4',
+  ps5: 'PlayStation 5',
+  'xbox-series-xs': 'Xbox Series X/S',
+  'xbox-one': 'Xbox One',
+  switch: 'Nintendo Switch',
+  android: 'Android',
+  ios: 'iOS',
+  itchio: 'itch.io',
+};
+
+const SOURCE_CHOICES = Object.entries(SOURCE_LABELS).map(([value, name]) => ({ name, value }));
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('freegames')
-    .setDescription('Get announcements when a game goes permanently free on Steam, GOG, or Epic')
+    .setDescription('Get announcements when a game goes permanently free on a supported store or platform')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(sub => sub
       .setName('enable')
       .setDescription('Turn on free game announcements for a source')
-      .addStringOption(opt => opt.setName('source').setDescription('Which store to track').setRequired(true)
-        .addChoices({ name: 'Steam', value: 'steam' }, { name: 'GOG', value: 'gog' }, { name: 'Epic Games', value: 'epic' }))
+      .addStringOption(opt => opt.setName('source').setDescription('Which store or platform to track').setRequired(true)
+        .addChoices(...SOURCE_CHOICES))
       .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post announcements in').addChannelTypes(ChannelType.GuildText).setRequired(true)))
     .addSubcommand(sub => sub
       .setName('disable')
       .setDescription('Turn off free game announcements for a source')
-      .addStringOption(opt => opt.setName('source').setDescription('Which store to stop tracking').setRequired(true)
-        .addChoices({ name: 'Steam', value: 'steam' }, { name: 'GOG', value: 'gog' }, { name: 'Epic Games', value: 'epic' })))
+      .addStringOption(opt => opt.setName('source').setDescription('Which store or platform to stop tracking').setRequired(true)
+        .addChoices(...SOURCE_CHOICES)))
     .addSubcommand(sub => sub
       .setName('list')
       .setDescription('Show which free game sources are enabled for this server')),

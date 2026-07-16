@@ -270,6 +270,8 @@
   .rr-edit-actions { display: flex; gap: 6px; }
   .rr-edit-actions button { flex-shrink: 0; width: auto; padding: 8px 14px; }
   .rr-edit-actions button.secondary { background: transparent; border: 1px solid var(--panel-border); }
+  .rr-edit-actions button.rr-edit-delete { background: transparent; border: 1px solid var(--err); color: var(--err); margin-left: auto; }
+  .rr-edit-actions button.rr-edit-delete:hover { background: #ff5c5c1a; }
 
   .rr-mapping-edit-row {
     display: flex; align-items: center; gap: 6px;
@@ -1135,6 +1137,7 @@
             </select>
             <div class="rr-edit-actions">
               <button type="button" class="rr-edit-save">Save details</button>
+              <button type="button" class="rr-edit-delete">Delete panel</button>
             </div>
           </div>
           <div class="rr-edit-section">
@@ -1245,6 +1248,25 @@
         } catch (err) {
           toast(err.message, 'err');
         } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    el.querySelectorAll('.rr-edit-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const panelEl = btn.closest('.rr-panel');
+        const messageId = panelEl.dataset.messageId;
+        if (!confirm('Delete this panel? This removes the Discord message and all its emoji-role pairs — this can\'t be undone.')) return;
+        btn.disabled = true;
+        try {
+          const params = new URLSearchParams({ channelId: panelEl.dataset.channelId });
+          await api(`/guilds/${state.guildId}/reactionroles/panels/${messageId}?${params}`, { method: 'DELETE' });
+          state.expandedPanels.delete(messageId);
+          toast('Panel deleted', 'ok');
+          loadGuild(state.guildId);
+        } catch (err) {
+          toast(err.message, 'err');
           btn.disabled = false;
         }
       });
