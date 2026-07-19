@@ -70,6 +70,11 @@ function start(client) {
     res.json(req.session.user);
   });
 
+  // Unauthenticated on purpose — visitors without the bot need this before they can log in usefully.
+  app.get('/api/invite-url', (req, res) => {
+    res.json({ url: config.web.inviteUrl });
+  });
+
   // ---- API ----
   app.use('/api', buildApiRouter(client));
 

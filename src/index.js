@@ -16,6 +16,7 @@ const giveawayCloser = require('./services/giveawayCloser');
 const giveawayInteractions = require('./services/giveawayInteractions');
 const modLogHandler = require('./services/modLogHandler');
 const spamDetector = require('./services/spamDetector');
+const statusRotator = require('./services/statusRotator');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -49,6 +50,7 @@ client.once('clientReady', () => {
   giveawayCloser.start(client);
   modLogHandler.register(client);
   spamDetector.register(client);
+  statusRotator.start(client);
 });
 
 client.on('interactionCreate', async (interaction) => {
