@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="VVC Skald Bot" width="100%" />
+</p>
+
 # VVC Skald Bot
 
 A free, fully open-source, self-hosted Discord community bot. No premium tiers, no paywalls,
