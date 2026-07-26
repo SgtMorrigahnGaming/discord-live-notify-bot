@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.png" alt="VVC Skald Bot" width="100%" />
+  <img src="assets/banner.jpg" alt="VVC Skald Bot" width="100%" />
 </p>
 
 # VVC Skald Bot
