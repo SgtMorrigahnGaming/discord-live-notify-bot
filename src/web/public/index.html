@@ -174,6 +174,12 @@
     background: transparent; border: none; color: var(--err); cursor: pointer; font-size: 12px;
     padding: 4px 8px;
   }
+  .sub-item-wrap { margin-bottom: 8px; }
+  .sub-item-wrap .sub-item { margin-bottom: 0; }
+  .sub-item-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .sub-item-actions .sub-edit-btn {
+    color: var(--text-dim); border: 1px solid var(--panel-border); border-radius: 6px; padding: 4px 8px;
+  }
   .empty-state { color: var(--text-dim); font-size: 13px; padding: 12px 0; }
 
   form.add-form { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
@@ -590,7 +596,7 @@
   <div id="toast"></div>
 
 <script>
-  const state = { guildId: null, expandedPanels: new Set() };
+  const state = { guildId: null, expandedPanels: new Set(), expandedTwitch: new Set(), expandedYoutube: new Set() };
 
   function toast(msg, kind) {
     const el = document.getElementById('toast');
@@ -690,6 +696,8 @@
     document.getElementById('youtubeRole').innerHTML = roleOpts;
     document.getElementById('giveawayEntryRole').innerHTML = roles.map(r => `<option value="${r.id}">@${r.name}</option>`).join('');
 
+    state.twitchData = { subs: twitchSubs, channels, roles };
+    state.youtubeData = { subs: youtubeSubs, channels, roles };
     renderTwitchList(twitchSubs, channels, roles);
     renderYoutubeList(youtubeSubs, channels, roles);
     renderFreeGames(freeGamesSubs, channels);
@@ -908,16 +916,54 @@
   function renderTwitchList(subs, channels, roles) {
     const el = document.getElementById('twitchList');
     if (subs.length === 0) { el.innerHTML = '<div class="empty-state">No streamers tracked yet.</div>'; return; }
-    el.innerHTML = subs.map(s => `
-      <div class="sub-item">
-        <div>
-          <div>${s.streamer_login}</div>
-          <div class="meta">#${channelName(channels, s.announce_channel_id)}${s.role_id ? ' • @' + roleName(roles, s.role_id) : ''}</div>
-        </div>
-        <button data-username="${s.streamer_login}">Remove</button>
-      </div>
-    `).join('');
-    el.querySelectorAll('button').forEach(btn => {
+    const chanOpts = channels.map(c => `<option value="${c.id}">#${c.name}</option>`).join('');
+    const roleOptsBase = '<option value="">No role ping</option>' + roles.map(r => `<option value="${r.id}">@${r.name}</option>`).join('');
+    el.innerHTML = subs.map(s => {
+      const isOpen = state.expandedTwitch.has(s.streamer_login);
+      const editPanel = !isOpen ? '' : `
+        <div class="rr-edit-panel">
+          <div class="rr-edit-section">
+            <h4>Channel</h4>
+            <select class="twitch-edit-channel">${chanOpts}</select>
+          </div>
+          <div class="rr-edit-section">
+            <h4>Role ping</h4>
+            <select class="twitch-edit-role">${roleOptsBase}</select>
+          </div>
+          <div class="rr-edit-section">
+            <h4>Custom message</h4>
+            <input type="text" class="twitch-edit-message" value="${escapeHtml(s.custom_message || '')}" placeholder="Custom message (optional) — {streamer} {title} {game} {url}" />
+          </div>
+          <div class="rr-edit-actions">
+            <button type="button" class="twitch-edit-save" data-username="${s.streamer_login}">Save</button>
+          </div>
+        </div>`;
+      return `
+        <div class="sub-item-wrap" data-username="${s.streamer_login}">
+          <div class="sub-item">
+            <div>
+              <div>${s.streamer_login}</div>
+              <div class="meta">#${channelName(channels, s.announce_channel_id)}${s.role_id ? ' • @' + roleName(roles, s.role_id) : ''}</div>
+            </div>
+            <div class="sub-item-actions">
+              <button type="button" class="sub-edit-btn" data-action="toggle-edit" data-username="${s.streamer_login}">${isOpen ? 'Done' : 'Edit'}</button>
+              <button type="button" data-action="remove" data-username="${s.streamer_login}">Remove</button>
+            </div>
+          </div>
+          ${editPanel}
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('[data-action="toggle-edit"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const login = btn.dataset.username;
+        if (state.expandedTwitch.has(login)) state.expandedTwitch.delete(login);
+        else state.expandedTwitch.add(login);
+        renderTwitchList(state.twitchData.subs, state.twitchData.channels, state.twitchData.roles);
+      });
+    });
+
+    el.querySelectorAll('[data-action="remove"]').forEach(btn => {
       btn.addEventListener('click', async () => {
         try {
           await api(`/guilds/${state.guildId}/twitch/${btn.dataset.username}`, { method: 'DELETE' });
@@ -926,21 +972,86 @@
         } catch (err) { toast(err.message, 'err'); }
       });
     });
+
+    el.querySelectorAll('.twitch-edit-save').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const login = btn.dataset.username;
+        const wrap = el.querySelector(`.sub-item-wrap[data-username="${CSS.escape(login)}"]`);
+        const channelId = wrap.querySelector('.twitch-edit-channel').value;
+        const roleId = wrap.querySelector('.twitch-edit-role').value || null;
+        const message = wrap.querySelector('.twitch-edit-message').value.trim() || null;
+        try {
+          await api(`/guilds/${state.guildId}/twitch/${login}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ channelId, roleId, message }),
+          });
+          toast(`Updated ${login}`, 'ok');
+          state.expandedTwitch.delete(login);
+          loadGuild(state.guildId);
+        } catch (err) { toast(err.message, 'err'); }
+      });
+    });
+
+    // Pre-select current values now that options are in the DOM
+    subs.forEach(s => {
+      if (!state.expandedTwitch.has(s.streamer_login)) return;
+      const wrap = el.querySelector(`.sub-item-wrap[data-username="${CSS.escape(s.streamer_login)}"]`);
+      wrap.querySelector('.twitch-edit-channel').value = s.announce_channel_id;
+      wrap.querySelector('.twitch-edit-role').value = s.role_id || '';
+    });
   }
 
   function renderYoutubeList(subs, channels, roles) {
     const el = document.getElementById('youtubeList');
     if (subs.length === 0) { el.innerHTML = '<div class="empty-state">No channels tracked yet.</div>'; return; }
-    el.innerHTML = subs.map(s => `
-      <div class="sub-item">
-        <div>
-          <div>${s.channel_name || s.channel_id}</div>
-          <div class="meta">#${channelName(channels, s.announce_channel_id)}${s.role_id ? ' • @' + roleName(roles, s.role_id) : ''}</div>
-        </div>
-        <button data-id="${s.channel_id}">Remove</button>
-      </div>
-    `).join('');
-    el.querySelectorAll('button').forEach(btn => {
+    const chanOpts = channels.map(c => `<option value="${c.id}">#${c.name}</option>`).join('');
+    const roleOptsBase = '<option value="">No role ping</option>' + roles.map(r => `<option value="${r.id}">@${r.name}</option>`).join('');
+    el.innerHTML = subs.map(s => {
+      const isOpen = state.expandedYoutube.has(s.channel_id);
+      const editPanel = !isOpen ? '' : `
+        <div class="rr-edit-panel">
+          <div class="rr-edit-section">
+            <h4>Channel</h4>
+            <select class="youtube-edit-channel">${chanOpts}</select>
+          </div>
+          <div class="rr-edit-section">
+            <h4>Role ping</h4>
+            <select class="youtube-edit-role">${roleOptsBase}</select>
+          </div>
+          <div class="rr-edit-section">
+            <h4>Custom message</h4>
+            <input type="text" class="youtube-edit-message" value="${escapeHtml(s.custom_message || '')}" placeholder="Custom message (optional) — {channel} {title} {url}" />
+          </div>
+          <div class="rr-edit-actions">
+            <button type="button" class="youtube-edit-save" data-id="${s.channel_id}">Save</button>
+          </div>
+        </div>`;
+      return `
+        <div class="sub-item-wrap" data-id="${s.channel_id}">
+          <div class="sub-item">
+            <div>
+              <div>${escapeHtml(s.channel_name || s.channel_id)}</div>
+              <div class="meta">#${channelName(channels, s.announce_channel_id)}${s.role_id ? ' • @' + roleName(roles, s.role_id) : ''}</div>
+            </div>
+            <div class="sub-item-actions">
+              <button type="button" class="sub-edit-btn" data-action="toggle-edit" data-id="${s.channel_id}">${isOpen ? 'Done' : 'Edit'}</button>
+              <button type="button" data-action="remove" data-id="${s.channel_id}">Remove</button>
+            </div>
+          </div>
+          ${editPanel}
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('[data-action="toggle-edit"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        if (state.expandedYoutube.has(id)) state.expandedYoutube.delete(id);
+        else state.expandedYoutube.add(id);
+        renderYoutubeList(state.youtubeData.subs, state.youtubeData.channels, state.youtubeData.roles);
+      });
+    });
+
+    el.querySelectorAll('[data-action="remove"]').forEach(btn => {
       btn.addEventListener('click', async () => {
         try {
           await api(`/guilds/${state.guildId}/youtube/${btn.dataset.id}`, { method: 'DELETE' });
@@ -948,6 +1059,33 @@
           loadGuild(state.guildId);
         } catch (err) { toast(err.message, 'err'); }
       });
+    });
+
+    el.querySelectorAll('.youtube-edit-save').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const wrap = el.querySelector(`.sub-item-wrap[data-id="${CSS.escape(id)}"]`);
+        const channelId = wrap.querySelector('.youtube-edit-channel').value;
+        const roleId = wrap.querySelector('.youtube-edit-role').value || null;
+        const message = wrap.querySelector('.youtube-edit-message').value.trim() || null;
+        try {
+          await api(`/guilds/${state.guildId}/youtube/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ channelId, roleId, message }),
+          });
+          toast('Updated channel', 'ok');
+          state.expandedYoutube.delete(id);
+          loadGuild(state.guildId);
+        } catch (err) { toast(err.message, 'err'); }
+      });
+    });
+
+    // Pre-select current values now that options are in the DOM
+    subs.forEach(s => {
+      if (!state.expandedYoutube.has(s.channel_id)) return;
+      const wrap = el.querySelector(`.sub-item-wrap[data-id="${CSS.escape(s.channel_id)}"]`);
+      wrap.querySelector('.youtube-edit-channel').value = s.announce_channel_id;
+      wrap.querySelector('.youtube-edit-role').value = s.role_id || '';
     });
   }
 

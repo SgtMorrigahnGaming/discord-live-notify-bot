@@ -114,6 +114,14 @@ function buildRouter(client) {
     res.json({ ok: true, displayName: user.display_name, announcedLive });
   });
 
+  guildRouter.patch('/twitch/:username', (req, res) => {
+    const { channelId, roleId, message } = req.body;
+    if (!channelId) return res.status(400).json({ error: 'channelId is required' });
+    const changes = db.updateTwitchSub(req.params.guildId, req.params.username, channelId, roleId || null, message || null);
+    if (changes === 0) return res.status(404).json({ error: 'Not tracked' });
+    res.json({ ok: true });
+  });
+
   guildRouter.delete('/twitch/:username', (req, res) => {
     const changes = db.removeTwitchSub(req.params.guildId, req.params.username);
     if (changes === 0) return res.status(404).json({ error: 'Not tracked' });
@@ -153,6 +161,14 @@ function buildRouter(client) {
       db.setYoutubeState(channelId, result.latest.videoId);
     }
     res.json({ ok: true, channelName });
+  });
+
+  guildRouter.patch('/youtube/:channelId', (req, res) => {
+    const { channelId: announceChannelId, roleId, message } = req.body;
+    if (!announceChannelId) return res.status(400).json({ error: 'channelId is required' });
+    const changes = db.updateYoutubeSub(req.params.guildId, req.params.channelId, announceChannelId, roleId || null, message || null);
+    if (changes === 0) return res.status(404).json({ error: 'Not tracked' });
+    res.json({ ok: true });
   });
 
   guildRouter.delete('/youtube/:channelId', (req, res) => {

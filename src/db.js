@@ -242,6 +242,12 @@ module.exports = {
     return db.prepare(`DELETE FROM twitch_subscriptions WHERE guild_id = ? AND streamer_login = ?`)
       .run(guildId, streamerLogin.toLowerCase()).changes;
   },
+  updateTwitchSub(guildId, streamerLogin, channelId, roleId, customMessage) {
+    return db.prepare(`
+      UPDATE twitch_subscriptions SET announce_channel_id = @channelId, role_id = @roleId, custom_message = @customMessage
+      WHERE guild_id = @guildId AND streamer_login = @streamerLogin
+    `).run({ guildId, streamerLogin: streamerLogin.toLowerCase(), channelId, roleId, customMessage }).changes;
+  },
   listTwitchSubsForGuild(guildId) {
     return db.prepare(`SELECT * FROM twitch_subscriptions WHERE guild_id = ? ORDER BY streamer_login`).all(guildId);
   },
@@ -283,6 +289,12 @@ module.exports = {
   removeYoutubeSub(guildId, channelId) {
     return db.prepare(`DELETE FROM youtube_subscriptions WHERE guild_id = ? AND channel_id = ?`)
       .run(guildId, channelId).changes;
+  },
+  updateYoutubeSub(guildId, channelId, announceChannelId, roleId, customMessage) {
+    return db.prepare(`
+      UPDATE youtube_subscriptions SET announce_channel_id = @announceChannelId, role_id = @roleId, custom_message = @customMessage
+      WHERE guild_id = @guildId AND channel_id = @channelId
+    `).run({ guildId, channelId, announceChannelId, roleId, customMessage }).changes;
   },
   listYoutubeSubsForGuild(guildId) {
     return db.prepare(`SELECT * FROM youtube_subscriptions WHERE guild_id = ? ORDER BY channel_name`).all(guildId);
