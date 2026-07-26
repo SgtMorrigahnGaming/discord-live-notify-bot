@@ -2,8 +2,10 @@ const express = require('express');
 const { PermissionsBitField, ChannelType, EmbedBuilder } = require('discord.js');
 const db = require('../db');
 const twitchClient = require('../services/twitchClient');
+const { announceTwitchLive } = require('../services/announcer');
 const youtubeClient = require('../services/youtubeClient');
 const emojiUtil = require('../utils/emoji');
+const logger = require('../utils/logger');
 const { generateWelcomeCard } = require('../utils/welcomeCard');
 const { requireAuth, requireGuildAccess } = require('./authMiddleware');
 const pollInteractions = require('../services/pollInteractions');
@@ -84,8 +86,32 @@ function buildRouter(client) {
     if (!user) {
       return res.status(404).json({ error: `No Twitch user found with username "${username}"` });
     }
-    db.addTwitchSub(req.params.guildId, username.trim().toLowerCase(), channelId, roleId || null, message || null);
-    res.json({ ok: true, displayName: user.display_name });
+    const login = username.trim().toLowerCase();
+    db.addTwitchSub(req.params.guildId, login, channelId, roleId || null, message || null);
+
+    // If the streamer is already live, the poller's "newly live" dedup (keyed globally per
+    // streamer, not per-guild) means this guild would otherwise wait until their *next* stream
+    // to get an announcement. Fire a one-off announcement for just this guild now instead.
+    // This does not touch twitch_state, so it has no effect on any other guild's dedup.
+    let announcedLive = false;
+    try {
+      const liveStreams = await twitchClient.getLiveStreams([login]);
+      const stream = liveStreams.get(login);
+      if (stream) {
+        const sub = {
+          guild_id: req.params.guildId,
+          announce_channel_id: channelId,
+          role_id: roleId || null,
+          custom_message: message || null,
+        };
+        await announceTwitchLive(client, sub, stream, user);
+        announcedLive = true;
+      }
+    } catch (err) {
+      logger.warn(`Immediate live-check failed for new Twitch sub "${login}" in guild ${req.params.guildId}:`, err.message);
+    }
+
+    res.json({ ok: true, displayName: user.display_name, announcedLive });
   });
 
   guildRouter.delete('/twitch/:username', (req, res) => {
