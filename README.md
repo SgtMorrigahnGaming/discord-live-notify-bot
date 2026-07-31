@@ -2,6 +2,12 @@
   <img src="assets/banner.jpg" alt="VVC Skald Bot" width="100%" />
 </p>
 
+<p align="center">
+  <a href="https://top.gg/bot/1524428870600626357"><img src="https://top.gg/api/widget/status/1524428870600626357.svg" alt="top.gg status" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
+  <img src="https://img.shields.io/badge/node-22%2B-brightgreen.svg" alt="Node 22+" />
+</p>
+
 # VVC Skald Bot
 
 A free, fully open-source, self-hosted Discord community bot. No premium tiers, no paywalls,
@@ -31,6 +37,20 @@ needs.
 
 Everything is manageable from the dashboard. Slash commands remain available in parallel if you
 prefer them.
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshot-dashboard-overview.png" alt="Dashboard overview" width="49%" />
+  <img src="assets/free-games.png" alt="Free games management" width="49%" />
+</p>
+<p align="center">
+  <img src="assets/reaction-roles.png" alt="Reaction role panel builder" width="49%" />
+  <img src="assets/mod-logging.png" alt="Mod logging & spam detection config" width="49%" />
+</p>
+
+*(Drop your PNGs into `assets/` using the filenames above, or rename the `src` attributes to match
+whatever you save them as — swap in as many or as few as you like.)*
 
 ## Requirements
 

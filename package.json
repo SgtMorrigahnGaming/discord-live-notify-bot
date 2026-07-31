@@ -1,16 +1,27 @@
 {
   "name": "discord-live-notify-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "VVC Skald Bot — a free, fully open-source, self-hosted Discord community bot with Twitch/YouTube announcements, free games alerts, reaction roles, welcome cards, polls, giveaways, mod action logging, spam detection, and a full web dashboard.",
   "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
     "deploy-commands": "node src/deploy-commands.js",
     "deploy-commands:guild": "node src/deploy-commands-guild.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "discord",
+    "discord-bot",
+    "discord.js",
+    "self-hosted",
+    "twitch",
+    "youtube",
+    "reaction-roles",
+    "giveaway-bot",
+    "moderation-bot",
+    "open-source"
+  ],
+  "author": "SgtMorrigahnGaming",
+  "license": "MIT",
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "@napi-rs/canvas": "^1.0.2",
