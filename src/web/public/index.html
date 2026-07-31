@@ -361,6 +361,11 @@
     padding: 6px 12px; font-size: 12px; border-radius: 8px; cursor: pointer; margin-top: 8px;
   }
   .giveaway-close-btn:hover { background: #ff5c5c1a; }
+  .giveaway-delete-btn {
+    background: transparent; border: 1px solid #8a8d9a55; color: var(--text-dim);
+    border-radius: 6px; padding: 6px 12px; font-size: 12px; margin-top: 8px; cursor: pointer;
+  }
+  .giveaway-delete-btn:hover { background: #ff5c5c1a; border-color: #ff5c5c55; color: var(--err); }
 </style>
 </head>
 <body>
@@ -859,7 +864,7 @@
             ${g.auto_reroll_enabled ? '<span>🔁 auto-reroll</span>' : ''}
           </div>
           ${winnerRows}
-          ${isOpen ? `<button class="giveaway-close-btn" data-giveaway-id="${g.id}">End now</button>` : ''}
+          ${isOpen ? `<button class="giveaway-close-btn" data-giveaway-id="${g.id}">End now</button>` : `<button class="giveaway-delete-btn" data-giveaway-id="${g.id}">Delete</button>`}
         </div>`;
     }).join('');
 
@@ -869,6 +874,18 @@
         try {
           await api(`/guilds/${state.guildId}/giveaways/${btn.dataset.giveawayId}/close`, { method: 'POST' });
           toast('Giveaway closed', 'ok');
+          const giveaways = await api(`/guilds/${state.guildId}/giveaways`);
+          renderGiveaways(giveaways, state.channels, state.roles);
+        } catch (err) { toast(err.message, 'err'); }
+      });
+    });
+
+    el.querySelectorAll('.giveaway-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm("Delete this giveaway? This can't be undone.")) return;
+        try {
+          await api(`/guilds/${state.guildId}/giveaways/${btn.dataset.giveawayId}`, { method: 'DELETE' });
+          toast('Giveaway deleted', 'ok');
           const giveaways = await api(`/guilds/${state.guildId}/giveaways`);
           renderGiveaways(giveaways, state.channels, state.roles);
         } catch (err) { toast(err.message, 'err'); }

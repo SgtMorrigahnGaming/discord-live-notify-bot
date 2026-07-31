@@ -92,7 +92,7 @@ async function handleClaim(interaction) {
   const winner = db.getGiveawayWinner(winnerId);
 
   if (!winner) {
-    return interaction.reply({ content: "❌ Couldn't find that giveaway winner record.", ephemeral: true });
+    return interaction.reply({ content: '⏰ This giveaway has ended and its records are no longer available.', ephemeral: true });
   }
   if (winner.user_id !== interaction.user.id) {
     return interaction.reply({ content: "❌ This isn't your prize to claim.", ephemeral: true });
@@ -141,10 +141,10 @@ async function handleEnter(interaction) {
   const giveaway = db.getGiveaway(giveawayId);
 
   if (!giveaway) {
-    return interaction.reply({ content: "❌ Couldn't find that giveaway.", ephemeral: true });
+    return interaction.reply({ content: '⏰ This giveaway has ended and is no longer available.', ephemeral: true });
   }
   if (giveaway.status !== 'open') {
-    return interaction.reply({ content: '⚠️ This giveaway is no longer open.', ephemeral: true });
+    return interaction.reply({ content: '⏰ This giveaway has ended.', ephemeral: true });
   }
 
   const member = interaction.member;

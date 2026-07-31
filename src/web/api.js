@@ -514,6 +514,14 @@ function buildRouter(client) {
     res.json({ ok: true });
   });
 
+  guildRouter.delete('/giveaways/:giveawayId', (req, res) => {
+    const giveaway = db.getGiveaway(req.params.giveawayId);
+    if (!giveaway || giveaway.guild_id !== req.params.guildId) return res.status(404).json({ error: 'Giveaway not found' });
+    if (giveaway.status !== 'closed') return res.status(400).json({ error: 'Close this giveaway before deleting it' });
+    db.deleteGiveaway(giveaway.id);
+    res.json({ ok: true });
+  });
+
   // ---- Mod Action Logging ----
   guildRouter.get('/modlog', (req, res) => {
     res.json(db.getModlogConfig(req.params.guildId) || {
