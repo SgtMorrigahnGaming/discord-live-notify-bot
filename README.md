@@ -49,8 +49,6 @@ prefer them.
   <img src="assets/mod-logging.png" alt="Mod logging & spam detection config" width="49%" />
 </p>
 
-*(Drop your PNGs into `assets/` using the filenames above, or rename the `src` attributes to match
-whatever you save them as — swap in as many or as few as you like.)*
 
 ## Requirements
 
