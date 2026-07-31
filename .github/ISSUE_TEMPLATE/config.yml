@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Setup / self-hosting question
+    url: https://github.com/SgtMorrigahnGaming/discord-live-notify-bot#readme
+    about: Check the README first — most setup questions (intents, permissions, .env) are already covered there.
