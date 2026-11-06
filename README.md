@@ -34,8 +34,11 @@ needs.
   link across multiple channels, with configurable thresholds and auto-timeout
 - **Web dashboard** — manage every feature above through a browser instead of memorizing slash
   commands, secured with Discord OAuth2 and per-server permission checks
+- **Announcements** — moderators post announcements as the bot with `/vvc`: real `@everyone`, `@here`
+  and `@role` pings, clickable `#channel` links, plain text or a titled, colored embed. Locked to a
+  moderator role you choose, with a cooldown and optional logging of who posted what
 
-Everything is manageable from the dashboard. Slash commands remain available in parallel if you
+Everything except announcements is manageable from the dashboard. Slash commands remain available in parallel if you
 prefer them.
 
 ## Screenshots
@@ -146,7 +149,8 @@ Let's Encrypt certificate — the dashboard itself just listens on plain HTTP on
 
 ## Commands
 
-All commands require the **Manage Server** permission.
+All commands require the **Manage Server** permission, except `/vvc`, which requires the moderator
+role set with `/vvcrole` (see [Announcements](#announcements-vvc)).
 
 | Command | Description |
 |---|---|
@@ -157,6 +161,8 @@ All commands require the **Manage Server** permission.
 | `/welcome setup \| test \| enable \| disable` | Configure welcome cards and optional join DM |
 | `/poll create \| close \| results \| list` | Native Discord polls with a guided builder |
 | `/giveaway create \| close \| results \| list` | Giveaways with role-gating, booster bonus entries, auto-close |
+| `/vvc message [style] [title] [color]` | Moderators post an announcement as the bot, with real pings and channel links |
+| `/vvcrole set \| log \| clear \| view` | Choose which role may use `/vvc`, and optionally log every announcement |
 | `/help` | Show bot info in Discord |
 
 Mod action logging and spam detection are dashboard-only (no commands) — every server's channel
@@ -166,6 +172,37 @@ Custom messages support placeholders:
 - Twitch: `{streamer}`, `{title}`, `{game}`, `{url}`
 - YouTube: `{channel}`, `{title}`, `{url}`
 - Welcome DM: `{user}`, `{server}`
+
+## Announcements (`/vvc`)
+
+Let your moderators post announcements as the bot, with real pings and clickable channel links.
+
+**Setup (once per server)**
+
+1. An admin picks the moderator role: `/vvcrole set role:@Moderators`
+2. Optional: `/vvcrole log channel:#mod-log` logs every announcement (who posted what, and where).
+3. Optional: give the bot the **Mention Everyone** permission in your announcement channels, so
+   `@everyone`, `@here` and non-mentionable roles actually notify people.
+
+Until a role is set, only Administrators can use `/vvc`. `@everyone` can't be chosen as the
+moderator role.
+
+**Posting**
+
+Type `/vvc`, **select it from the popup** (typing the whole line straight into the chat bar posts it
+as an ordinary message instead), and type the announcement in the **message** box:
+
+```
+@everyone The ATM10 server has been updated to 8.5, please update your clients
+```
+
+- `@everyone`, `@here` — ping everyone (only people with the moderator role can trigger this)
+- `@role_name` — pings that role; use underscores for spaces, e.g. `@ATM10_Players`
+- `#channel-name` — becomes a clickable channel link
+- `\n` — starts a new line (slash command options are single-line)
+- `title` / `color` — adding either one turns the post into an embed; `style: Embed` forces an
+  embed with neither
+- 10-second cooldown per moderator; individual users can never be pinged through `/vvc`
 
 ## Resource footprint
 
@@ -182,6 +219,8 @@ Custom messages support placeholders:
   bot is removed from a server.
 - The spam detector reads message content in-memory only for fingerprinting — nothing is
   persisted to disk.
+- Announcement text is posted to Discord (and to your log channel, if you turn on `/vvcrole log`);
+  the bot only stores the moderator role and log channel IDs, never the announcements themselves.
 - See `/tos` and `/privacy` on your running dashboard for the full Terms of Service and Privacy
   Policy.
 
@@ -204,7 +243,7 @@ src/
   deploy-commands-guild.js    Registers slash commands to one guild (instant, for testing)
   commands/
     freegames.js, giveaway.js, help.js, poll.js, reactionroles.js,
-    twitch.js, welcome.js, youtube.js
+    twitch.js, vvc.js, vvcrole.js, welcome.js, youtube.js
   services/
     announcer.js               Embed building + sending (Twitch/YouTube)
     epicClient.js               Epic's official free-promotions feed
@@ -221,7 +260,7 @@ src/
     welcomeHandler.js
     youtubeClient.js / youtubePoller.js
   utils/
-    emoji.js, giveawayFormat.js, logger.js, pollFormat.js, welcomeCard.js
+    announceFormat.js, emoji.js, giveawayFormat.js, logger.js, pollFormat.js, welcomeCard.js
   web/
     server.js                   Express app, OAuth routes, static hosting
     api.js                       Dashboard REST API (all guild-scoped routes)
@@ -238,6 +277,13 @@ src/
   `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` in `.env` and restart.
 - **Commands don't show up in Discord** — global commands take up to an hour; use
   `npm run deploy-commands:guild` with `GUILD_ID` set for instant testing.
+- **`/vvc` posted my text as a normal chat message** — Discord only runs a command once you pick it
+  from the popup. Type `/vvc`, click the entry (or press Tab), then type your message in the
+  **message** box.
+- **`/vvc` says I don't have permission** — an admin needs to run `/vvcrole set` first. Only
+  Administrators and members with that role can post announcements.
+- **`@everyone` / `@here` doesn't notify anyone** — give the bot the **Mention Everyone** permission
+  in that channel.
 - **YouTube channel not found** — try pasting the full channel URL (e.g.
   `https://www.youtube.com/@handle`) instead of just the handle or name.
 - **No announcements coming through** — check the bot has permission to view and send messages in
