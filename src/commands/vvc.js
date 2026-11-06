@@ -77,7 +77,7 @@ module.exports = {
       .setRequired(true))
     .addStringOption(opt => opt
       .setName('style')
-      .setDescription('Plain text (default) or an embed with a colored bar')
+      .setDescription('Plain text (default) or embed. Setting a title or color switches to embed automatically')
       .addChoices(
         { name: 'Plain text', value: 'plain' },
         { name: 'Embed', value: 'embed' }
@@ -85,12 +85,12 @@ module.exports = {
       .setRequired(false))
     .addStringOption(opt => opt
       .setName('title')
-      .setDescription('Embed title (only used with the embed style)')
+      .setDescription('Embed title (makes the post an embed)')
       .setMaxLength(256)
       .setRequired(false))
     .addStringOption(opt => opt
       .setName('color')
-      .setDescription('Embed bar color (only used with the embed style)')
+      .setDescription('Embed bar color (makes the post an embed)')
       .addChoices(
         { name: 'Blurple', value: 'blurple' },
         { name: 'Green', value: 'green' },
@@ -131,7 +131,11 @@ module.exports = {
     if (!channel || !perms) {
       return interaction.reply({ content: '❌ I can\'t post in this channel.', ephemeral: true });
     }
-    const style = interaction.options.getString('style') || 'plain';
+    const explicitStyle = interaction.options.getString('style');
+    const titleOpt = interaction.options.getString('title');
+    const colorOpt = interaction.options.getString('color');
+    // Setting a title or color implies an embed, unless the mod explicitly picked plain text.
+    const style = explicitStyle || (titleOpt || colorOpt ? 'embed' : 'plain');
     const needed = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages];
     if (style === 'embed') needed.push(PermissionFlagsBits.EmbedLinks);
     if (!perms.has(needed)) {
@@ -187,6 +191,9 @@ module.exports = {
       if (unmentionable.length > 0) {
         notes.push(`⚠️ ${unmentionable.map((id) => `<@&${id}>`).join(', ')} isn't mentionable and I lack **Mention Everyone**, so that role wasn't pinged.`);
       }
+    }
+    if (style === 'plain' && (titleOpt || colorOpt)) {
+      notes.push('ℹ️ Title and color only apply to the embed style, so they were ignored.');
     }
     if (resolved.unresolved.length > 0) {
       notes.push(`ℹ️ I couldn't match: ${resolved.unresolved.map((u) => `\`${u}\``).join(', ')} — left as plain text.`);
