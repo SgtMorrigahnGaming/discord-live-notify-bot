@@ -19,9 +19,11 @@ module.exports = {
         { name: '/welcome setup | test | enable | disable', value: 'Configure the welcome card posted when someone joins, with an optional DM' },
         { name: '/poll create | close | results | list', value: 'Native Discord polls with a guided builder and live results' },
         { name: '/giveaway create | close | results | list', value: 'Giveaways with role-gating, booster bonus entries, and auto-close' },
+        { name: '/vvc message [style] [title] [color]', value: 'Moderators post an announcement as the bot — supports @everyone, @here, @role_name and #channel-name, as plain text or an embed' },
+        { name: '/vvcrole set | log | clear | view', value: 'Choose which role may use /vvc, and optionally log every announcement to a channel' },
         { name: 'Mod action logging & spam detection', value: 'Dashboard-only — no commands. Every server\'s channel layout is different, so you choose the channels yourself.' },
       )
-      .setFooter({ text: 'All commands require the "Manage Server" permission.' });
+      .setFooter({ text: 'Setup commands require the "Manage Server" permission. /vvc requires the moderator role set with /vvcrole.' });
 
     if (config.web.enabled && config.web.publicUrl) {
       embed.addFields({ name: 'Dashboard', value: config.web.publicUrl });

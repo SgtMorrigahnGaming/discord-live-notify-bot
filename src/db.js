@@ -190,6 +190,27 @@ CREATE TABLE IF NOT EXISTS modlog_config (
   spam_exempt_role_ids TEXT NOT NULL DEFAULT '[]',
   updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
+
+-- AFK Protection. Discord's AFK move is a guild-level setting we can't block outright,
+-- so this table lists voice channels and/or specific members that get moved back to
+-- where they came from the instant Discord drops them into the AFK channel.
+CREATE TABLE IF NOT EXISTS afk_protected_channels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  added_by TEXT,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  UNIQUE(guild_id, channel_id)
+);
+
+CREATE TABLE IF NOT EXISTS afk_protected_users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  added_by TEXT,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  UNIQUE(guild_id, user_id)
+);
 `);
 
 // --- Migration: expand freegames_subscriptions.source CHECK constraint ---
@@ -221,6 +242,17 @@ CREATE TABLE IF NOT EXISTS modlog_config (
   });
   migrate();
 })();
+
+// /vvc announcements. One row per guild: the role allowed to post announcements (nullable --
+// when unset only Administrators can use the command) and an optional channel that logs each one.
+db.exec(`
+CREATE TABLE IF NOT EXISTS announce_config (
+  guild_id TEXT PRIMARY KEY,
+  mod_role_id TEXT,
+  log_channel_id TEXT,
+  updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+`);
 
 module.exports = {
   raw: db,
@@ -674,6 +706,57 @@ markFreeGameAnnounced(source, externalId) {
     return db.prepare(`SELECT guild_id FROM modlog_config WHERE spam_enabled = 1`).all().map(r => r.guild_id);
   },
 
+  // ---- AFK Protection ----
+  listAfkProtectedChannels(guildId) {
+    return db.prepare(`SELECT * FROM afk_protected_channels WHERE guild_id = ? ORDER BY created_at ASC`).all(guildId);
+  },
+  isAfkProtectedChannel(guildId, channelId) {
+    return !!db.prepare(`SELECT 1 FROM afk_protected_channels WHERE guild_id = ? AND channel_id = ?`).get(guildId, channelId);
+  },
+  addAfkProtectedChannel(guildId, channelId, addedBy) {
+    db.prepare(`
+      INSERT INTO afk_protected_channels (guild_id, channel_id, added_by)
+      VALUES (?, ?, ?)
+      ON CONFLICT(guild_id, channel_id) DO NOTHING
+    `).run(guildId, channelId, addedBy || null);
+  },
+  removeAfkProtectedChannel(guildId, channelId) {
+    return db.prepare(`DELETE FROM afk_protected_channels WHERE guild_id = ? AND channel_id = ?`).run(guildId, channelId).changes;
+  },
+  listAfkProtectedUsers(guildId) {
+    return db.prepare(`SELECT * FROM afk_protected_users WHERE guild_id = ? ORDER BY created_at ASC`).all(guildId);
+  },
+  isAfkProtectedUser(guildId, userId) {
+    return !!db.prepare(`SELECT 1 FROM afk_protected_users WHERE guild_id = ? AND user_id = ?`).get(guildId, userId);
+  },
+  addAfkProtectedUser(guildId, userId, addedBy) {
+    db.prepare(`
+      INSERT INTO afk_protected_users (guild_id, user_id, added_by)
+      VALUES (?, ?, ?)
+      ON CONFLICT(guild_id, user_id) DO NOTHING
+    `).run(guildId, userId, addedBy || null);
+  },
+  removeAfkProtectedUser(guildId, userId) {
+    return db.prepare(`DELETE FROM afk_protected_users WHERE guild_id = ? AND user_id = ?`).run(guildId, userId).changes;
+  },
+
+  // ---- /vvc announcements ----
+  getAnnounceConfig(guildId) {
+    return db.prepare(`SELECT * FROM announce_config WHERE guild_id = ?`).get(guildId) || null;
+  },
+  setAnnounceModRole(guildId, roleId) {
+    db.prepare(`
+      INSERT INTO announce_config (guild_id, mod_role_id) VALUES (?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET mod_role_id = excluded.mod_role_id, updated_at = strftime('%s','now')
+    `).run(guildId, roleId);
+  },
+  setAnnounceLogChannel(guildId, channelId) {
+    db.prepare(`
+      INSERT INTO announce_config (guild_id, log_channel_id) VALUES (?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET log_channel_id = excluded.log_channel_id, updated_at = strftime('%s','now')
+    `).run(guildId, channelId);
+  },
+
   // ---- Full data purge (called when the bot is removed from a server) ----
   purgeGuildData(guildId) {
     const tx = db.transaction((id) => {
@@ -690,6 +773,9 @@ markFreeGameAnnounced(source, externalId) {
       db.prepare(`DELETE FROM giveaway_entries WHERE giveaway_id IN (SELECT id FROM giveaways WHERE guild_id = ?)`).run(id);
       db.prepare(`DELETE FROM giveaways WHERE guild_id = ?`).run(id);
       db.prepare(`DELETE FROM modlog_config WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM announce_config WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM afk_protected_channels WHERE guild_id = ?`).run(id);
+      db.prepare(`DELETE FROM afk_protected_users WHERE guild_id = ?`).run(id);
     });
     tx(guildId);
     this.pruneOrphanTwitchState();

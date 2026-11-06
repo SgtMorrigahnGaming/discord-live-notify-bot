@@ -41,6 +41,30 @@ function buildRouter(client) {
     res.json(channels);
   });
 
+  // ---- Voice channels, for the AFK Protection channel picker ----
+  guildRouter.get('/voice-channels', (req, res) => {
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const channels = guild.channels.cache
+      .filter(c => c.type === ChannelType.GuildVoice)
+      .map(c => ({ id: c.id, name: c.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json(channels);
+  });
+
+  // ---- Member search, for the AFK Protection user picker (servers can have thousands of members) ----
+  guildRouter.get('/members/search', async (req, res) => {
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const query = (req.query.q || '').trim();
+    if (!query) return res.json([]);
+    try {
+      const results = await guild.members.search({ query, limit: 10 });
+      res.json(results.map(m => ({ id: m.id, tag: m.user.tag, avatar: m.user.displayAvatarURL({ size: 32 }) })));
+    } catch (err) {
+      logger.warn(`AFK protect: member search failed in guild ${guild.id}: ${err.message}`);
+      res.json([]);
+    }
+  });
+
   guildRouter.get('/roles', (req, res) => {
     const guild = client.guilds.cache.get(req.params.guildId);
     const roles = guild.roles.cache
@@ -559,6 +583,62 @@ function buildRouter(client) {
       timeoutMinutes: timeout,
       exemptRoleIds: Array.isArray(exemptRoleIds) ? exemptRoleIds : [],
     });
+    res.json({ ok: true });
+  });
+
+  // ---- AFK Protection ----
+  guildRouter.get('/afkprotect', async (req, res) => {
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const channels = db.listAfkProtectedChannels(req.params.guildId);
+    const users = db.listAfkProtectedUsers(req.params.guildId);
+    const enrichedUsers = await Promise.all(users.map(async (u) => {
+      const member = await guild.members.fetch(u.user_id).catch(() => null);
+      return {
+        ...u,
+        tag: member ? member.user.tag : 'Unknown member',
+        avatar: member ? member.user.displayAvatarURL({ size: 32 }) : null,
+      };
+    }));
+    res.json({
+      channels,
+      users: enrichedUsers,
+      afkChannelId: guild.afkChannelId,
+      afkTimeoutMinutes: guild.afkTimeout ? Math.round(guild.afkTimeout / 60) : null,
+    });
+  });
+
+  guildRouter.post('/afkprotect/channels', (req, res) => {
+    const { channelId } = req.body;
+    if (!channelId) return res.status(400).json({ error: 'channelId is required' });
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const channel = guild.channels.cache.get(channelId);
+    if (!channel || channel.type !== ChannelType.GuildVoice) {
+      return res.status(400).json({ error: 'That is not a voice channel in this server' });
+    }
+    if (channelId === guild.afkChannelId) {
+      return res.status(400).json({ error: "That's already the server's AFK channel — nothing to protect it from" });
+    }
+    db.addAfkProtectedChannel(req.params.guildId, channelId, req.session.user.id);
+    res.json({ ok: true });
+  });
+
+  guildRouter.delete('/afkprotect/channels/:channelId', (req, res) => {
+    db.removeAfkProtectedChannel(req.params.guildId, req.params.channelId);
+    res.json({ ok: true });
+  });
+
+  guildRouter.post('/afkprotect/users', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const guild = client.guilds.cache.get(req.params.guildId);
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) return res.status(400).json({ error: 'Could not find that member in this server' });
+    db.addAfkProtectedUser(req.params.guildId, userId, req.session.user.id);
+    res.json({ ok: true });
+  });
+
+  guildRouter.delete('/afkprotect/users/:userId', (req, res) => {
+    db.removeAfkProtectedUser(req.params.guildId, req.params.userId);
     res.json({ ok: true });
   });
 

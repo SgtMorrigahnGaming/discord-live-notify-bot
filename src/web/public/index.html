@@ -310,6 +310,20 @@
   .rr-emoji-pick-item img { width: 24px; height: 24px; }
   .rr-emoji-popover-empty { font-size: 12px; color: var(--text-dim); padding: 6px 2px; }
 
+  .afk-server-info {
+    font-size: 12px; color: var(--text-dim); background: #1c1f28; border: 1px solid var(--panel-border);
+    border-radius: 8px; padding: 10px 12px; margin: 10px 0 4px;
+  }
+  .afk-server-info strong { color: var(--text); }
+  .afk-user-add-form { position: relative; }
+  .afk-user-search-wrap { position: relative; flex: 1; min-width: 0; }
+  .afk-user-search-result {
+    display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: 6px; cursor: pointer;
+  }
+  .afk-user-search-result:hover { background: #262a36; }
+  .afk-user-search-result img { width: 24px; height: 24px; border-radius: 50%; }
+  .afk-user-avatar { width: 24px; height: 24px; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
+
   .poll-choice-row { display: flex; gap: 6px; margin-bottom: 6px; }
   .poll-choice-row input { flex: 1; min-width: 0; }
   .poll-choice-row button {
@@ -389,6 +403,7 @@
         <select id="guildSelect"></select>
         <div class="nav-items">
           <button class="nav-item active" data-module="welcome" style="--nav-accent: #3ddc97;"><span class="swatch"></span>Welcome</button>
+          <button class="nav-item" data-module="afkprotect" style="--nav-accent: #1abc9c;"><span class="swatch"></span>AFK Protect</button>
           <button class="nav-item" data-module="modlogging" style="--nav-accent: #e74c3c;"><span class="swatch"></span>Mod Logging</button>
           <button class="nav-item" data-module="twitch" style="--nav-accent: #9146ff;"><span class="swatch"></span>Twitch</button>
           <button class="nav-item" data-module="youtube" style="--nav-accent: #ff3b3b;"><span class="swatch"></span>YouTube</button>
@@ -482,6 +497,33 @@
               </div>
               <button class="btn-ghost" id="welcomePreviewBtn" type="button" style="margin-top: 10px;">Preview card</button>
               <img id="welcomePreviewImg" alt="Welcome card preview" />
+            </section>
+          </section>
+
+          <section class="module-page" id="module-afkprotect">
+            <section class="panel" style="--accent: #1abc9c;">
+              <h2><span class="swatch"></span>AFK Protect</h2>
+              <div class="rr-description-hint">Discord's own AFK timeout enforces the move server-side — this can't block it outright, but it detects the move the instant it happens and sends the member straight back to where they were, so it behaves like protection.</div>
+              <div id="afkServerInfo" class="afk-server-info"></div>
+
+              <h2 style="margin-top: 24px;"><span class="swatch"></span>Protected voice channels</h2>
+              <div class="rr-description-hint">Anyone idled out of one of these channels is moved right back.</div>
+              <div id="afkChannelsList"></div>
+              <form class="add-form" id="afkChannelForm">
+                <select id="afkChannelSelect" required></select>
+                <button type="submit">Protect channel</button>
+              </form>
+
+              <h2 style="margin-top: 24px;"><span class="swatch"></span>Protected members</h2>
+              <div class="rr-description-hint">These members are moved back no matter which voice channel they idle out of.</div>
+              <div id="afkUsersList"></div>
+              <form class="add-form afk-user-add-form" id="afkUserForm">
+                <div class="afk-user-search-wrap">
+                  <input type="text" id="afkUserSearch" placeholder="Type a username to search..." autocomplete="off" />
+                  <div id="afkUserSearchResults" class="rr-emoji-popover" style="display:none;"></div>
+                </div>
+                <button type="submit" id="afkUserAddBtn" disabled>Protect member</button>
+              </form>
             </section>
           </section>
 
@@ -665,7 +707,7 @@
 
   async function loadGuild(guildId) {
     state.guildId = guildId;
-    const [channels, roles, twitchSubs, youtubeSubs, freeGamesSubs, welcomeConfig, rrPanels, emojis, polls, giveaways, modlogConfig] = await Promise.all([
+    const [channels, roles, twitchSubs, youtubeSubs, freeGamesSubs, welcomeConfig, rrPanels, emojis, polls, giveaways, modlogConfig, voiceChannels, afkProtect] = await Promise.all([
       api(`/guilds/${guildId}/channels`),
       api(`/guilds/${guildId}/roles`),
       api(`/guilds/${guildId}/twitch`),
@@ -677,6 +719,8 @@
       api(`/guilds/${guildId}/polls`),
       api(`/guilds/${guildId}/giveaways`),
       api(`/guilds/${guildId}/modlog`),
+      api(`/guilds/${guildId}/voice-channels`),
+      api(`/guilds/${guildId}/afkprotect`),
     ]);
     state.channels = channels;
     state.roles = roles;
@@ -711,6 +755,7 @@
     renderPolls(polls, channels);
     renderGiveaways(giveaways, channels, roles);
     renderModlog(modlogConfig, roles);
+    renderAfkProtect(afkProtect, voiceChannels);
   }
 
   function escapeHtml(str) {
@@ -1269,6 +1314,134 @@
         }),
       });
       toast('Spam settings saved', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  });
+
+  // ---- AFK Protection ----
+  function renderAfkProtect(data, voiceChannels) {
+    state.afkVoiceChannels = voiceChannels;
+
+    const infoEl = document.getElementById('afkServerInfo');
+    if (!data.afkChannelId) {
+      infoEl.innerHTML = `This server doesn't have an AFK channel configured in Server Settings → Overview, so Discord never auto-moves anyone — this feature has nothing to protect against yet.`;
+    } else {
+      const afkName = channelName(voiceChannels, data.afkChannelId);
+      infoEl.innerHTML = `Server AFK channel: <strong>#${escapeHtml(afkName)}</strong> · Idle timeout: <strong>${data.afkTimeoutMinutes ?? '?'} min</strong>`;
+    }
+
+    // Channel picker excludes the AFK channel itself and anything already protected
+    const protectedChannelIds = new Set(data.channels.map(c => c.channel_id));
+    const pickable = voiceChannels.filter(c => c.id !== data.afkChannelId && !protectedChannelIds.has(c.id));
+    const select = document.getElementById('afkChannelSelect');
+    select.innerHTML = pickable.length === 0
+      ? '<option value="">No more voice channels to protect</option>'
+      : pickable.map(c => `<option value="${c.id}">#${c.name}</option>`).join('');
+    document.getElementById('afkChannelForm').querySelector('button').disabled = pickable.length === 0;
+
+    const channelsEl = document.getElementById('afkChannelsList');
+    channelsEl.innerHTML = data.channels.length === 0
+      ? '<div class="empty-state">No voice channels protected yet.</div>'
+      : data.channels.map(c => `
+        <div class="sub-item-wrap" data-channel-id="${c.channel_id}">
+          <div class="sub-item">
+            <div>#${escapeHtml(channelName(voiceChannels, c.channel_id))}</div>
+            <div class="sub-item-actions">
+              <button type="button" data-action="remove-channel" data-channel-id="${c.channel_id}">Remove</button>
+            </div>
+          </div>
+        </div>`).join('');
+    channelsEl.querySelectorAll('button[data-action="remove-channel"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try {
+          await api(`/guilds/${state.guildId}/afkprotect/channels/${btn.dataset.channelId}`, { method: 'DELETE' });
+          toast('Channel unprotected', 'ok');
+          loadGuild(state.guildId);
+        } catch (err) { toast(err.message, 'err'); }
+      });
+    });
+
+    const usersEl = document.getElementById('afkUsersList');
+    usersEl.innerHTML = data.users.length === 0
+      ? '<div class="empty-state">No members protected yet.</div>'
+      : data.users.map(u => `
+        <div class="sub-item-wrap" data-user-id="${u.user_id}">
+          <div class="sub-item">
+            <div>${u.avatar ? `<img class="afk-user-avatar" src="${u.avatar}" alt="" />` : ''}${escapeHtml(u.tag)}</div>
+            <div class="sub-item-actions">
+              <button type="button" data-action="remove-user" data-user-id="${u.user_id}">Remove</button>
+            </div>
+          </div>
+        </div>`).join('');
+    usersEl.querySelectorAll('button[data-action="remove-user"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try {
+          await api(`/guilds/${state.guildId}/afkprotect/users/${btn.dataset.userId}`, { method: 'DELETE' });
+          toast('Member unprotected', 'ok');
+          loadGuild(state.guildId);
+        } catch (err) { toast(err.message, 'err'); }
+      });
+    });
+  }
+
+  document.getElementById('afkChannelForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const channelId = document.getElementById('afkChannelSelect').value;
+    if (!channelId) return;
+    try {
+      await api(`/guilds/${state.guildId}/afkprotect/channels`, { method: 'POST', body: JSON.stringify({ channelId }) });
+      toast('Channel protected', 'ok');
+      loadGuild(state.guildId);
+    } catch (err) { toast(err.message, 'err'); }
+  });
+
+  // Member search-as-you-type: debounced, results rendered into a popover (reuses the
+  // reaction-role emoji picker's popover styling and its shared click-away handler).
+  let afkUserSearchTimer = null;
+  let afkUserSelected = null;
+
+  document.getElementById('afkUserSearch').addEventListener('input', (e) => {
+    afkUserSelected = null;
+    document.getElementById('afkUserAddBtn').disabled = true;
+    const query = e.target.value.trim();
+    const resultsEl = document.getElementById('afkUserSearchResults');
+    clearTimeout(afkUserSearchTimer);
+    if (!query) { resultsEl.style.display = 'none'; return; }
+    afkUserSearchTimer = setTimeout(async () => {
+      let results;
+      try {
+        results = await api(`/guilds/${state.guildId}/members/search?q=${encodeURIComponent(query)}`);
+      } catch {
+        return;
+      }
+      if (results.length === 0) {
+        resultsEl.innerHTML = '<div class="rr-emoji-popover-empty">No matching members found.</div>';
+      } else {
+        resultsEl.innerHTML = results.map(u => `
+          <div class="afk-user-search-result" data-user-id="${u.id}" data-tag="${escapeHtml(u.tag)}">
+            <img src="${u.avatar}" alt="" />
+            <span>${escapeHtml(u.tag)}</span>
+          </div>`).join('');
+        resultsEl.querySelectorAll('.afk-user-search-result').forEach(item => {
+          item.addEventListener('click', () => {
+            afkUserSelected = item.dataset.userId;
+            document.getElementById('afkUserSearch').value = item.dataset.tag;
+            document.getElementById('afkUserAddBtn').disabled = false;
+          });
+        });
+      }
+      resultsEl.style.display = 'block';
+    }, 300);
+  });
+
+  document.getElementById('afkUserForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!afkUserSelected) return;
+    try {
+      await api(`/guilds/${state.guildId}/afkprotect/users`, { method: 'POST', body: JSON.stringify({ userId: afkUserSelected }) });
+      toast('Member protected', 'ok');
+      document.getElementById('afkUserSearch').value = '';
+      afkUserSelected = null;
+      loadGuild(state.guildId);
     } catch (err) { toast(err.message, 'err'); }
   });
 
